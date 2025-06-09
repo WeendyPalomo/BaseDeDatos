@@ -1,13 +1,11 @@
 // server.js
 
-// ¡IMPORTANTE! Esta línea debe ir al principio del archivo para cargar las variables de entorno
-require('dotenv').config();
-
+require('dotenv').config(); // Carga las variables de entorno
 const express = require('express');
-const app = express();
+const cors = require('cors');
 const sql = require('mssql');
-const cors = require('cors'); // Para permitir peticiones desde el frontend
 
+const app = express();
 app.use(cors()); // Habilitar CORS para todas las rutas
 app.use(express.json()); // Habilitar el uso de JSON en las peticiones
 
@@ -20,7 +18,7 @@ const configByCity = {
     database: process.env.DB_NAME_QUITO,
     options: {
       encrypt: true,
-      trustServerCertificate: true
+      trustServerCertificate: true // Cambiar a false en producción si usas certificados válidos
     }
   },
   GYE: {
@@ -101,18 +99,21 @@ const getConnection = async (cityCode) => {
 // --- Rutas de la API ---
 
 // Ruta para obtener las ciudades
-app.get('/api/ciudades', async (req, res) => {
-    try {
-        const pool = await getConnection('QUI'); // Usamos Quito como base de referencia para ciudades
-        const result = await pool.request().query('SELECT id_Ciudad, ciu_descripcion FROM CIUDADES ORDER BY ciu_descripcion');
-        pool.close(); // Cerrar la conexión después de usarla
-        res.json(result.recordset);
-    } catch (err) {
-        console.error('Error al obtener ciudades:', err);
-        res.status(500).send('Error al obtener ciudades');
-    }
+app.get('/api/ciudades', (req, res) => {
+    // Genera la lista de ciudades dinámicamente desde configByCity
+    const ciudadesDisponibles = Object.keys(configByCity).map(key => {
+        let ciu_descripcion = '';
+        switch(key) {
+            case 'QUI': ciu_descripcion = 'Quito'; break;
+            case 'GYE': ciu_descripcion = 'Guayaquil'; break;
+            case 'CUE': ciu_descripcion = 'Cuenca'; break;
+            case 'MAN': ciu_descripcion = 'Manta'; break;
+            default: ciu_descripcion = key; // Fallback
+        }
+        return { id_Ciudad: key, ciu_descripcion: ciu_descripcion };
+    });
+    res.json(ciudadesDisponibles);
 });
-
 // Facturas por ciudad o todas
 app.get('/api/facturas', async (req, res) => {
     try {
@@ -160,50 +161,95 @@ app.get('/api/facturas', async (req, res) => {
 
 // Detalle de factura (necesita la ciudad en query params)
 app.get('/api/facturas/detalle/:id', async (req, res) => {
-    const { ciudad } = req.query; // Necesario para saber a qué DB conectarse
+    const { ciudad } = req.query;
     const { id } = req.params;
-    let pool;
-    try {
-        if (!ciudad) {
-            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle de la factura.');
+    const ciudades = ['QUI', 'GYE', 'CUE', 'MAN'];
+
+    // Si se especifica una ciudad concreta
+    if (ciudad && ciudad !== "ALL") {
+        try {
+            const pool = await getConnection(ciudad);
+            const result = await pool.request()
+                .input('p_id_factura', sql.Char(15), id)
+                .execute('dbo.sp_ver_factura_completa');
+
+            const headerData = result.recordsets[0]?.[0] || null;
+            const detailData = result.recordsets[1] || [];
+            const totalsData = result.recordsets[2]?.[0] || null;
+
+            const formattedDetails = detailData.map(item => ({
+                id_producto: item.columna1,
+                descripcion_producto: item.columna2,
+                unidad_medida: item.columna3,
+                cantidad: item.columna4,
+                precio_unitario: item.columna5,
+                subtotal_producto: item.columna6,
+                estado_detalle: item.columna7,
+            }));
+
+            return res.json({
+                header: headerData ? {
+                    id_factura: headerData.columna1,
+                    fecha_hora: headerData.columna2,
+                    cliente_nombre: headerData.columna3,
+                    cliente_ruc_ced: headerData.columna4,
+                    cliente_mail: headerData.columna5,
+                    descripcion_factura: headerData.columna6,
+                    estado_factura: headerData.columna7,
+                } : null,
+                details: formattedDetails,
+                totals_summary: totalsData?.columna6 || null,
+            });
+        } catch (err) {
+            console.error(`Error al obtener detalle en ciudad ${ciudad}:`, err);
+            return res.status(500).send('Error al obtener el detalle de la factura.');
         }
-        pool = await getConnection(ciudad);
-        const result = await pool.request()
-            .input('p_id_factura', sql.Char(15), id)
-            .execute('dbo.sp_ver_factura_completa');
-        pool.close(); // Cerrar el pool después de usarlo
-
-        const headerData = result.recordsets[0]?.[0] || null;
-        const detailData = result.recordsets[1] || [];
-        const totalsData = result.recordsets[2]?.[0] || null;
-
-        const formattedDetails = detailData.map(item => ({
-            id_producto: item.columna1, 
-            descripcion_producto: item.columna2,
-            unidad_medida: item.columna3,
-            cantidad: item.columna4,
-            precio_unitario: item.columna5,
-            subtotal_producto: item.columna6,
-            estado_detalle: item.columna7,
-        }));
-
-        res.json({
-            header: headerData ? {
-                id_factura: headerData.columna1,
-                fecha_hora: headerData.columna2,
-                cliente_nombre: headerData.columna3,
-                cliente_ruc_ced: headerData.columna4,
-                cliente_mail: headerData.columna5,
-                descripcion_factura: headerData.columna6,
-                estado_factura: headerData.columna7,
-            } : null,
-            details: formattedDetails,
-            totals_summary: totalsData?.columna6 || null,
-        });
-    } catch (err) {
-        console.error('Error al obtener el detalle de la factura:', err);
-        res.status(500).send('Error al obtener el detalle de la factura.');
     }
+
+    // Si no se especifica ciudad o es "ALL", intentar en todas
+    for (const ciudadDb of ciudades) {
+        try {
+            const pool = await getConnection(ciudadDb);
+            const result = await pool.request()
+                .input('p_id_factura', sql.Char(15), id)
+                .execute('dbo.sp_ver_factura_completa');
+
+            const headerData = result.recordsets[0]?.[0];
+            if (headerData) {
+                const detailData = result.recordsets[1] || [];
+                const totalsData = result.recordsets[2]?.[0] || null;
+
+                const formattedDetails = detailData.map(item => ({
+                    id_producto: item.columna1,
+                    descripcion_producto: item.columna2,
+                    unidad_medida: item.columna3,
+                    cantidad: item.columna4,
+                    precio_unitario: item.columna5,
+                    subtotal_producto: item.columna6,
+                    estado_detalle: item.columna7,
+                }));
+
+                return res.json({
+                    header: {
+                        id_factura: headerData.columna1,
+                        fecha_hora: headerData.columna2,
+                        cliente_nombre: headerData.columna3,
+                        cliente_ruc_ced: headerData.columna4,
+                        cliente_mail: headerData.columna5,
+                        descripcion_factura: headerData.columna6,
+                        estado_factura: headerData.columna7,
+                    },
+                    details: formattedDetails,
+                    totals_summary: totalsData?.columna6 || null,
+                });
+            }
+        } catch (err) {
+            console.warn(`Factura no encontrada o error en ${ciudadDb}:`, err.message);
+            // Continuar intentando con las otras ciudades
+        }
+    }
+
+    return res.status(404).send('Factura no encontrada en ninguna ciudad.');
 });
 
 // Empleados (por ciudad o todas)

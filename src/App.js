@@ -677,16 +677,17 @@ function VentasDetailModal({ facturaId, onClose, ciudad }) {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!facturaId || !ciudad) {
-      setFacturaDetails(null);
-      setLoading(false);
-      return;
-    }
+    if (!facturaId) return;
 
     setLoading(true);
     setError(null);
-    // Usa el mismo endpoint de detalle de factura, ya que la estructura es la misma
-    fetch(`http://localhost:3001/api/facturas/detalle/${facturaId}?ciudad=${ciudad}`)
+
+    // Construir la URL condicionalmente
+    const url = ciudad && ciudad !== "ALL"
+      ? `http://localhost:3001/api/facturas/detalle/${facturaId}?ciudad=${ciudad}`
+      : `http://localhost:3001/api/facturas/detalle/${facturaId}`;
+
+    fetch(url)
       .then((res) => {
         if (!res.ok) {
           throw new Error(`HTTP error! status: ${res.status}`);
@@ -704,7 +705,7 @@ function VentasDetailModal({ facturaId, onClose, ciudad }) {
       });
   }, [facturaId, ciudad]);
 
-  if (!facturaId || !ciudad) return null;
+  if (!facturaId) return null;
 
   return (
     <div className="modal-overlay">
@@ -716,7 +717,7 @@ function VentasDetailModal({ facturaId, onClose, ciudad }) {
         {error && <p className="error-message">{error}</p>}
 
         {facturaDetails && (
-          <div className="factura-detail-container"> {/* Reutiliza la clase de contenedor de factura */}
+          <div className="factura-detail-container">
             {facturaDetails.header && (
               <div className="factura-header">
                 <h3>Información General de Venta</h3>
@@ -775,7 +776,6 @@ function VentasDetailModal({ facturaId, onClose, ciudad }) {
   );
 }
 
-
 // Componente para el módulo de Ventas
 function Ventas() {
   const [ventas, setVentas] = useState([]);
@@ -794,12 +794,14 @@ function Ventas() {
       .catch((err) => console.error("Error al obtener ventas:", err));
   }, [selectedCity]); // Re-fetch cuando la ciudad seleccionada cambie
 
+  // Manejador para el botón "Ver Detalle" en Ventas
   const handleViewDetail = (id, ciudadDb) => {
     setCurrentFacturaId(id);
     setCurrentFacturaCiudad(ciudadDb);
     setShowDetailModal(true);
   };
 
+  // Manejador para cerrar el modal de detalle de factura
   const handleCloseModal = () => {
     setShowDetailModal(false);
     setCurrentFacturaId(null);
