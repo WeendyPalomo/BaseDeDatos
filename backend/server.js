@@ -197,27 +197,32 @@ app.get('/api/facturas/detalle/:id', async (req, res) => {
     const { id } = req.params;
     const ciudades = Object.keys(configByCity);
 
-    // Si se especifica una ciudad Y es válida en configByCity, intentar solo en esa.
-    // De lo contrario (ciudad 'ALL', no especificada, o no válida), iterar por todas.
+    console.log(`[DEBUG - Factura Detalle] Recibida solicitud para ID: ${id}, Ciudad (req.query.ciudad): "${ciudad}"`);
+
     let citiesToSearch = [];
     if (ciudad && ciudad !== "ALL" && configByCity[ciudad]) {
         citiesToSearch = [ciudad];
+        console.log(`[DEBUG - Factura Detalle] Ciudad es válida y configurada. Buscando solo en: ${ciudad}`);
     } else {
-        citiesToSearch = ciudades;
+        citiesToSearch = ciudades; // Si es 'ALL', no especificada o no válida, buscar en todas
+        console.log(`[DEBUG - Factura Detalle] Ciudad no especificada/válida. Buscando en todas las ciudades configuradas: ${citiesToSearch.join(', ')}`);
     }
 
     for (const cityCode of citiesToSearch) {
+        console.log(`[DEBUG - Factura Detalle] Intentando conectar a la ciudad: ${cityCode}`);
         try {
             const pool = await getConnection(cityCode);
             const request = pool.request()
                 .input('p_id_factura', sql.Char(15), id);
             
+            console.log(`[DEBUG - Factura Detalle] Ejecutando SP 'dbo.sp_ver_factura_completa' en ${cityCode} para ID ${id}`);
             const result = await request.execute('dbo.sp_ver_factura_completa');
             
             pool.close(); // Cerrar el pool después de usarlo
 
             const headerData = result.recordsets[0]?.[0];
             if (headerData) {
+                console.log(`[DEBUG - Factura Detalle] Factura encontrada en ${cityCode}.`);
                 const detailData = result.recordsets[1] || [];
                 const totalsData = result.recordsets[2]?.[0] || null;
 
@@ -246,10 +251,14 @@ app.get('/api/facturas/detalle/:id', async (req, res) => {
                 });
             }
         } catch (err) {
-            console.warn(`Factura ${id} no encontrada o error en ${cityCode}: ${err.message}`);
+            // No es un error crítico si la factura no está en esta BD, solo se logea
+            console.warn(`[DEBUG - Factura Detalle] Factura ${id} no encontrada o error en ${cityCode}: ${err.message}`);
+            // Si la ciudad no es válida para la conexión (como 'IBR'), el error se manejará aquí
+            // y el bucle continuará intentando con la siguiente ciudad válida.
         }
     }
 
+    console.warn(`[DEBUG - Factura Detalle] Factura con ID ${id} no encontrada en ninguna de las bases de datos configuradas.`);
     return res.status(404).send(`Factura con ID ${id} no encontrada en ninguna de las bases de datos configuradas.`);
 });
 
@@ -567,6 +576,8 @@ app.get('/api/ventas', async (req, res) => {
     const { ciudad } = req.query;
     let ventasResult = [];
 
+    console.log(`[DEBUG - Ventas Lista] Recibida solicitud. Ciudad de filtro (req.query.ciudad): "${ciudad}"`);
+
     if (!ciudad || ciudad === 'ALL') {
         const allCities = Object.keys(configByCity);
         const promisesVentas = allCities.map(async c => {
@@ -597,6 +608,7 @@ app.get('/api/ventas', async (req, res) => {
                   INNER JOIN PRODUCTOS P ON PF.id_Producto = P.id_Producto
                   ORDER BY F.fac_Fecha_Hora DESC, F.id_Factura, P.pro_Descripcion;
                 `;
+                console.log(`[DEBUG - Ventas Lista] Ejecutando consulta ALL en la ciudad: ${c}`);
                 const result = await request.query(query);
                 currentPool.close();
                 // Añadir el nombre de la base de datos Y el id_Ciudad (c)
@@ -641,6 +653,8 @@ app.get('/api/ventas', async (req, res) => {
               ORDER BY F.fac_Fecha_Hora DESC, F.id_Factura, P.pro_Descripcion;
             `;
             request.input('ciudad', sql.Char(3), ciudad);
+            console.log(`[DEBUG - Ventas Lista] Ejecutando consulta filtrada para la ciudad: ${ciudad}`);
+            console.log(`[DEBUG - Ventas Lista] Query: ${query}`);
             const result = await request.query(query);
             pool.close();
             // Añadir el nombre de la base de datos Y el id_Ciudad (ciudad)
@@ -650,11 +664,13 @@ app.get('/api/ventas', async (req, res) => {
                 CiudadDB: configByCity[ciudad].database,
                 id_Ciudad: item.FacturaCiudadId // Usar el alias de la columna CIU.id_Ciudad
             }));
+            console.log(`[DEBUG - Ventas Lista] Resultados obtenidos para ${ciudad}:`, ventasResult.length);
         } catch (err) {
             console.error(`Error al obtener ventas para la ciudad ${ciudad}:`, err);
             return res.status(500).send(`Error al obtener ventas para la ciudad ${ciudad}`);
         }
     }
+    console.log(`[DEBUG - Ventas Lista] Total de resultados a enviar al frontend: ${ventasResult.length}`);
     res.json(ventasResult);
   } catch (err) {
     console.error('Error general al obtener ventas:', err);
@@ -678,21 +694,21 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
             try {
                 currentPool = await getConnection(c);
                 const request = currentPool.request();
+                // CORRECCIÓN: Eliminado id_Ciudad de la selección, si no existe en la tabla ASIENTOS
                 const query = `
                     SELECT
                         id_Asiento,
                         asi_FechaHora,
                         asi_Descripcion,
-                        ESTADO_ASI,
-                        id_Ciudad -- Asegúrate de que esta columna esté en tu tabla ASIENTOS
+                        ESTADO_ASI
                     FROM ASIENTOS
                     ORDER BY asi_FechaHora DESC, id_Asiento DESC;
                 `;
                 const result = await request.query(query);
                 currentPool.close();
                 console.log(`Ciudad ${c} tiene ${result.recordset.length} asientos`);
-                // Añadir el nombre de la base de datos
-                return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database }));
+                // Añadir el nombre de la base de datos y el id_Ciudad (c) basado en la conexión
+                return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database, id_Ciudad: c }));
             } catch (innerErr) {
                 console.error(`Error al obtener asientos de ${c}:`, innerErr);
                 return [];
@@ -705,22 +721,22 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
       try {
         pool = await getConnection(ciudad);
         const request = pool.request();
+        // CORRECCIÓN: Eliminado id_Ciudad de la selección y de la cláusula WHERE, si no existe en la tabla ASIENTOS
         const query = `
           SELECT
             id_Asiento,
             asi_FechaHora,
             asi_Descripcion,
-            ESTADO_ASI,
-            id_Ciudad -- Asegúrate de que esta columna esté en tu tabla ASIENTOS
+            ESTADO_ASI
           FROM ASIENTOS
-          WHERE id_Ciudad = @ciudad -- Filtrar por ciudad del asiento
           ORDER BY asi_FechaHora DESC, id_Asiento DESC;
         `;
-        request.input('ciudad', sql.Char(3), ciudad);
+        // Ya no se filtra por id_Ciudad en la consulta SQL directamente
+        // request.input('ciudad', sql.Char(3), ciudad);
         const result = await request.query(query);
         pool.close();
-        // Añadir el nombre de la base de datos
-        asientosResult = result.recordset.map(a => ({ ...a, CiudadDB: configByCity[ciudad].database }));
+        // Añadir el nombre de la base de datos y el id_Ciudad (ciudad) basado en la conexión
+        asientosResult = result.recordset.map(a => ({ ...a, CiudadDB: configByCity[ciudad].database, id_Ciudad: ciudad }));
       } catch (err) {
         console.error(`Error al obtener asientos para la ciudad ${ciudad}:`, err);
         return res
@@ -740,51 +756,63 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
   const { ciudad } = req.query;
   const { id: asientoId } = req.params;
 
-  if (!ciudad) {
-    return res.status(400).send('Se requiere el parámetro "ciudad".');
+  console.log(`[DEBUG - Asiento Detalle] Recibida solicitud para ID: ${asientoId}, Ciudad (req.query.ciudad): "${ciudad}"`);
+
+  let citiesToSearch = [];
+  if (ciudad && ciudad !== "ALL" && configByCity[ciudad]) {
+      citiesToSearch = [ciudad];
+      console.log(`[DEBUG - Asiento Detalle] Ciudad es válida y configurada. Buscando solo en: ${ciudad}`);
+  } else {
+      citiesToSearch = Object.keys(configByCity); // Si es 'ALL', no especificada o no válida, buscar en todas
+      console.log(`[DEBUG - Asiento Detalle] Ciudad no especificada/válida. Buscando en todas las ciudades configuradas: ${citiesToSearch.join(', ')}`);
   }
-  // Validar si la ciudad es una clave válida en configByCity
-  if (!configByCity[ciudad]) {
-      console.error(`Error: Ciudad no válida para conexión en el detalle del asiento: ${ciudad}`);
-      return res.status(400).send(`Ciudad no válida para el asiento: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
+
+  for (const cityCode of citiesToSearch) {
+      console.log(`[DEBUG - Asiento Detalle] Intentando conectar a la ciudad: ${cityCode}`);
+      try {
+          const pool = await getConnection(cityCode);
+          const request = pool.request();
+          request.input('p_id_Asiento', sql.VarChar(50), asientoId);
+
+          console.log(`[DEBUG - Asiento Detalle] Ejecutando SP 'dbo.sp_ver_asiento_completo' en ${cityCode} para ID ${asientoId}`);
+          const result = await request.execute('dbo.sp_ver_asiento_completo');
+          pool.close();
+
+          const rows = result.recordsets[0] || [];
+
+          const headerRow = rows.find(r => r.tipo === 'CABECERA');
+          if (headerRow) { // Si se encuentra la cabecera en esta BD, se devuelve
+              const detailRows = rows.filter(r => r.tipo === 'PARTIDA');
+
+              const formattedResponse = {
+                  header: {
+                      id_Asiento: headerRow.columna1,
+                      asi_Descripcion: headerRow.columna2,
+                      asi_total_debe: parseFloat((headerRow.columna3 || '0').replace(',', '')),
+                      asi_total_haber: parseFloat((headerRow.columna4 || '0').replace(',', '')),
+                      asi_FechaHora: headerRow.columna5,
+                      user_id: headerRow.columna6,
+                      ESTADO_ASI: headerRow.columna7,
+                  },
+                  details: detailRows.map(r => ({
+                      id_asiento: r.columna1,
+                      id_cuenta: r.columna2,
+                      cue_nombre: r.columna3,
+                      det_Debito: parseFloat((r.columna4 || '0').replace(',', '')),
+                      det_Credito: parseFloat((r.columna5 || '0').replace(',', '')),
+                      ESTADO_DET: r.columna7,
+                  }))
+              };
+              console.log(`[DEBUG - Asiento Detalle] Asiento encontrado en ${cityCode}.`);
+              return res.json(formattedResponse);
+          }
+      } catch (err) {
+          console.warn(`[DEBUG - Asiento Detalle] Asiento ${asientoId} no encontrado o error en ${cityCode}: ${err.message}`);
+      }
   }
 
-  try {
-    const pool = await getConnection(ciudad);
-    const request = pool.request();
-    request.input('p_id_Asiento', sql.VarChar(50), asientoId);
-
-    const result = await request.execute('dbo.sp_ver_asiento_completo');
-    const rows = result.recordsets[0] || [];
-
-    const headerRow = rows.find(r => r.tipo === 'CABECERA');
-    const detailRows = rows.filter(r => r.tipo === 'PARTIDA');
-
-    const formattedResponse = {
-      header: headerRow ? {
-        id_Asiento: headerRow.columna1,
-        asi_Descripcion: headerRow.columna2,
-        asi_total_debe: parseFloat((headerRow.columna3 || '0').replace(',', '')),
-        asi_total_haber: parseFloat((headerRow.columna4 || '0').replace(',', '')),
-        asi_FechaHora: headerRow.columna5,
-        user_id: headerRow.columna6,
-        ESTADO_ASI: headerRow.columna7
-      } : null,
-      details: detailRows.map(r => ({
-        id_asiento: r.columna1,
-        id_cuenta: r.columna2,
-        cue_nombre: r.columna3,
-        det_Debito: parseFloat((r.columna4 || '0').replace(',', '')),
-        det_Credito: parseFloat((r.columna5 || '0').replace(',', '')),
-        ESTADO_DET: r.columna7
-      }))
-    };
-
-    res.json(formattedResponse);
-  } catch (err) {
-    console.error('Error al obtener el detalle del asiento:', err);
-    res.status(500).send('Error al obtener el detalle del asiento.');
-  }
+  console.warn(`[DEBUG - Asiento Detalle] Asiento con ID ${asientoId} no encontrado en ninguna de las bases de datos configuradas.`);
+  return res.status(404).send(`Asiento con ID ${asientoId} no encontrado en ninguna de las bases de datos configuradas.`);
 });
 
 // ENDPOINTS PARA INVENTARIO (AHORA PARA AJUSTES)
