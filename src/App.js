@@ -3,21 +3,18 @@ import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Route, Routes, Link, useLocation } from "react-router-dom";
 import "./App.css"; // Asegúrate de que esta ruta sea correcta
 import Inicio from './Inicio'; // Importa el componente Inicio
-// import GeneralLog from './GeneralLog'; // ELIMINADO: Ya no necesitamos este import según tu indicación
+import GeneralLog from './GeneralLog'; // Importa el componente GeneralLog (¡DESCOMENTADO Y REINTEGRADO!)
 
-// --- Componentes Placeholder (ELIMINADOS: Eran duplicados y causaban el error) ---
-// Las implementaciones completas de estos componentes ya están más abajo en el archivo.
-// Si estos componentes existieran en archivos externos, se importarían aquí.
-// --- Fin Componentes Placeholder ---
+// --- Componentes funcionales ---
 
-
-// Componente reutilizable para la selección de ciudad
+// Componente reutilizable para la selección de ciudad (AHORA MUESTRA NOMBRES DE BASES DE DATOS)
 function CitySelect({ selectedCity, onCityChange }) {
   const [ciudades, setCiudades] = useState([]);
 
   useEffect(() => {
-    // Obtener la lista de ciudades del backend
+    // Obtener la lista de ciudades/bases de datos del backend
     // Este endpoint de /api/ciudades debe devolver la lista de IDs de ciudades (QUI, GYE, etc.)
+    // y los nombres de las bases de datos.
     fetch("http://localhost:3001/api/ciudades")
       .then((res) => res.json())
       .then((data) => setCiudades(data))
@@ -26,12 +23,12 @@ function CitySelect({ selectedCity, onCityChange }) {
 
   return (
     <div style={{ marginBottom: "1rem" }}>
-      <label htmlFor="city-select">Filtrar por Ciudad: </label>
+      <label htmlFor="city-select">Filtrar por Base de Datos: </label> {/* Cambiado el label */}
       <select id="city-select" onChange={(e) => onCityChange(e.target.value)} value={selectedCity}>
-        <option value="ALL">Todas las Ciudades</option>
+        <option value="ALL">Todas las Bases de Datos</option> {/* Cambiado el texto */}
         {ciudades.map((c) => (
           <option key={c.id_Ciudad} value={c.id_Ciudad}>
-            {c.ciu_descripcion}
+            {c.db_name} {/* Usa db_name para el texto de la opción */}
           </option>
         ))}
       </select>
@@ -189,7 +186,7 @@ function Facturas() {
             <th>Cliente</th>
             <th>Ciudad Cliente</th>
             <th>Estado</th>
-            <th>Ciudad DB</th> {/* Nueva columna para la ciudad de la base de datos */}
+            <th>Base de Datos</th> {/* Cambiado de Ciudad DB a Base de Datos */}
           </tr>
         </thead>
         <tbody>
@@ -210,12 +207,12 @@ function Facturas() {
                 <td>{f.cli_Nombre_Completo || 'N/A'}</td>
                 <td>{f.CiudadCliente || 'N/A'}</td>
                 <td>{f.ESTADO_FAC || 'N/A'}</td>
-                <td>{f.CiudadDB || 'N/A'}</td> {/* Muestra la ciudad de la DB */}
+                <td>{f.CiudadDB || 'N/A'}</td> {/* Muestra el nombre de la Base de Datos */}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan="11">No hay facturas disponibles para la ciudad seleccionada.</td>
+              <td colSpan="11">No hay facturas disponibles para la base de datos seleccionada.</td>
             </tr>
           )}
         </tbody>
@@ -234,8 +231,9 @@ function Facturas() {
 
 
 // Componente para la ventana modal de detalles de rol de pago de empleado
-function EmployeePayrollModal({ employeeId, onClose, ciudad }) { // Recibe también la ciudad
-  const [payrollDetails, setPayrollDetails] = useState(null);
+function EmployeePayrollModal({ employeeId, onClose, ciudad }) {
+  // Cambiamos el nombre de estado de 'payrollDetails' a 'rolData' para reflejar el formato plano
+  const [rolData, setRolData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedYear, setSelectedYear] = useState('ALL');
@@ -253,8 +251,8 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) { // Recibe tambi
   ];
 
   useEffect(() => {
-    if (!employeeId || !ciudad) { // Asegúrate de que la ciudad esté presente
-      setPayrollDetails(null);
+    if (!employeeId || !ciudad) {
+      setRolData(null); // Usar setRolData
       setLoading(false);
       return;
     }
@@ -263,12 +261,14 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) { // Recibe tambi
     setError(null);
 
     const queryParams = new URLSearchParams();
-    if (selectedYear !== 'ALL') {
-      queryParams.append('year', selectedYear);
-    }
-    if (selectedMonth !== 'ALL') {
-      queryParams.append('month', selectedMonth);
-    }
+    // Los filtros de año y mes no se usan en el backend actual para fn_visualizar_rol,
+    // pero se mantienen aquí en el frontend por si se desean implementar en el futuro.
+    // if (selectedYear !== 'ALL') {
+    //   queryParams.append('year', selectedYear);
+    // }
+    // if (selectedMonth !== 'ALL') {
+    //   queryParams.append('month', selectedMonth);
+    // }
     queryParams.append('ciudad', ciudad); // Añadir la ciudad a los query params
 
     fetch(`http://localhost:3001/api/empleados/payroll/${employeeId}?${queryParams.toString()}`)
@@ -279,15 +279,17 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) { // Recibe tambi
         return res.json();
       })
       .then((data) => {
-        setPayrollDetails(data);
+        // Ahora, 'data' es directamente el array plano del recordset de fn_visualizar_rol
+        setRolData(data); // Usar setRolData
         setLoading(false);
       })
       .catch((err) => {
         console.error("Error al obtener detalles de rol de pago:", err);
         setError("Error al cargar los detalles del rol de pago.");
+        setRolData(null); // Usar setRolData
         setLoading(false);
       });
-  }, [employeeId, selectedYear, selectedMonth, ciudad]); // Re-fetch cuando cambian estos estados o la ciudad
+  }, [employeeId, ciudad]); // Eliminados selectedYear, selectedMonth de las dependencias, ya que no afectan la API
 
   if (!employeeId || !ciudad) return null;
 
@@ -295,7 +297,7 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) { // Recibe tambi
     <div className="modal-overlay">
       <div className="modal-content">
         <button className="modal-close-button" onClick={onClose}>&times;</button>
-        <h2>Rol de Pago para Empleado: {employeeId} (Ciudad: {ciudad})</h2> {/* Muestra la ciudad */}
+        <h2>Rol de Pago para Empleado: {employeeId} (Base de Datos: {ciudad})</h2> {/* Título cambiado */}
 
         <div className="payroll-filters">
           <label htmlFor="year-select">Año:</label>
@@ -318,51 +320,50 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) { // Recibe tambi
         {loading && <p>Cargando rol de pago...</p>}
         {error && <p className="error-message">{error}</p>}
 
-        {payrollDetails && payrollDetails.mainPayroll && payrollDetails.mainPayroll.length > 0 ? (
+        {/* Ahora renderizamos una tabla plana directamente de rolData */}
+        {rolData && rolData.length > 0 ? (
           <div className="payroll-detail-container">
-            <h3>Resumen de Pagos</h3>
+            <h3>Detalle de Rol de Pago</h3>
             <table className="detail-table">
               <thead>
                 <tr>
-                  <th>Período de Pago</th>
-                  <th>Sueldo Base</th>
-                  <th>Bonificaciones</th>
-                  <th>Descuentos</th>
-                  <th>Neto a Pagar</th>
-                  <th>Estado</th>
+                  {/* Genera los encabezados de la tabla dinámicamente de las claves del primer objeto */}
+                  {Object.keys(rolData[0]).map(col => (
+                    <th key={col}>{col}</th>
+                  ))}
                 </tr>
               </thead>
               <tbody>
-                {payrollDetails.mainPayroll.map((item, index) => (
-                  <React.Fragment key={index}>
-                    <tr>
-                      <td>{item.periodo_pago}</td>
-                      <td>${item.sueldo_base ? item.sueldo_base.toFixed(2) : '0.00'}</td>
-                      <td>${item.bonificaciones ? item.bonificaciones.toFixed(2) : '0.00'}</td>
-                      <td>${item.descuentos ? item.descuentos.toFixed(2) : '0.00'}</td>
-                      <td>${item.neto_a_pagar ? item.neto_a_pagar.toFixed(2) : '0.00'}</td>
-                      <td>{item.estado_pago}</td>
-                    </tr>
-                    {item.details && item.details.length > 0 && (
-                      <tr>
-                        <td colSpan="6">
-                          <div className="nested-details">
-                            <h4>Detalle de Bonificaciones/Descuentos:</h4>
-                            <ul>
-                              {item.details.map((detail, detIndex) => (
-                                <li key={detIndex}>
-                                  <strong>Tipo:</strong> {detail.tipo_detalle} -
-                                  <strong> Fecha:</strong> {detail.fecha_detalle ? new Date(detail.fecha_detalle).toLocaleDateString() : 'N/A'} -
-                                  <strong> Valor:</strong> ${detail.valor_detalle ? detail.valor_detalle.toFixed(2) : '0.00'} -
-                                  <strong> Estado:</strong> {detail.estado_detalle}
-                                </li>
-                              ))}
-                            </ul>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </React.Fragment>
+                {/* Mapea cada fila de los datos */}
+                {rolData.map((row, rowIndex) => (
+                  <tr key={rowIndex}>
+                    {/* Mapea cada valor de la fila */}
+                    {Object.values(row).map((val, colIndex) => (
+                      <td key={`${rowIndex}-${colIndex}`}>
+                        {(typeof val === 'number' && (
+                            // Intenta detectar si es un valor monetario
+                            (Object.keys(row)[colIndex].toLowerCase().includes('valor') ||
+                             Object.keys(row)[colIndex].toLowerCase().includes('sueldo') ||
+                             Object.keys(row)[colIndex].toLowerCase().includes('bonificacion') ||
+                             Object.keys(row)[colIndex].toLowerCase().includes('descuento') ||
+                             Object.keys(row)[colIndex].toLowerCase().includes('neto'))
+                            ? `$${val.toFixed(2)}`
+                            : val
+                          )) ||
+                          (typeof val === 'string'
+                            ? (() => {
+                                const dateVal = new Date(val);
+                                // Verifica si la cadena es una fecha ISO válida que se puede convertir
+                                // y si el nombre de la columna sugiere que es una fecha
+                                const isDateColumn = Object.keys(row)[colIndex].toLowerCase().includes('fecha');
+                                return isDateColumn && !isNaN(dateVal.getTime()) ? dateVal.toLocaleDateString() : val;
+                              })()
+                            : val
+                          )
+                        }
+                      </td>
+                    ))}
+                  </tr>
                 ))}
               </tbody>
             </table>
@@ -386,7 +387,7 @@ function Empleados() {
 
   useEffect(() => {
     // Construir el parámetro de consulta para la ciudad
-    const queryParam = selectedCity !== "ALL" ? `?city=${selectedCity}` : "";
+    const queryParam = selectedCity !== "ALL" ? `?ciudad=${selectedCity}` : ""; // Cambiado de 'city' a 'ciudad'
     fetch(`http://localhost:3001/api/empleados${queryParam}`) // Asegúrate que este endpoint exista en server.js
       .then((res) => res.json())
       .then((data) => setEmpleados(data))
@@ -427,7 +428,7 @@ function Empleados() {
             <th>Rol</th>
             <th>Ciudad Asignada (Tabla)</th> 
             <th>Ciudad (Cédula)</th>
-            <th>Ciudad DB</th>
+            <th>Base de Datos</th> {/* Cambiado de Ciudad DB a Base de Datos */}
           </tr>
         </thead>
         <tbody>
@@ -451,12 +452,12 @@ function Empleados() {
                 <td>{e.rol_Descripcion}</td>
                 <td>{e.EmpleadoCiudadAsignada || 'N/A'}</td> 
                 <td>{e.CiudadCedula || 'N/A'}</td>
-                <td>{e.CiudadDB || 'N/A'}</td> 
+                <td>{e.CiudadDB || 'N/A'}</td> {/* Muestra el nombre de la Base de Datos */}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan="14">No hay empleados registrados o no hay empleados para la ciudad seleccionada.</td> 
+              <td colSpan="14">No hay empleados registrados o no hay empleados para la base de datos seleccionada.</td> 
             </tr>
           )}
         </tbody>
@@ -602,7 +603,7 @@ function Compras() {
 
   const handleViewDetail = (id, ciudadDb) => { // Recibe la ciudad de la DB
     setCurrentCompraId(id);
-    setCurrentCompraCiudad(ciudadDb);
+    setCurrentCompraCiudad(ciudadDb); // Pasar la ciudad de la DB (ej. "QUI")
     setShowDetailModal(true);
   };
 
@@ -627,7 +628,7 @@ function Compras() {
             <th>IVA</th>
             <th>Total</th> {/* Nueva columna para el total */}
             <th>Estado OC</th> 
-            <th>Ciudad DB</th> 
+            <th>Base de Datos</th> {/* Cambiado de Ciudad DB a Base de Datos */}
           </tr>
         </thead>
         <tbody>
@@ -635,7 +636,8 @@ function Compras() {
             compras.map((c, index) => (
               <tr key={c.id_Compra || index}>
                 <td>
-                  <button onClick={() => handleViewDetail(c.id_Compra, c.CiudadDB || selectedCity)} className="view-detail-button">
+                  {/* AQUÍ SE PASA EL id_Ciudad (ej. "QUI") en lugar de CiudadDB (ej. "Comercial_Quito") */}
+                  <button onClick={() => handleViewDetail(c.id_Compra, c.id_Ciudad || selectedCity)} className="view-detail-button">
                     Ver Detalle
                   </button>
                 </td>
@@ -646,12 +648,12 @@ function Compras() {
                 <td>${c.oc_IVA ? c.oc_IVA.toFixed(2) : '0.00'}</td>
                 <td>${c.oc_Total ? c.oc_Total.toFixed(2) : '0.00'}</td> {/* Muestra el total calculado */}
                 <td>{c.ESTADO_OC || 'N/A'}</td> 
-                <td>{c.CiudadDB || 'N/A'}</td> 
+                <td>{c.CiudadDB || 'N/A'}</td> {/* Muestra el nombre de la Base de Datos */}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan="9">No hay registros de compras para la ciudad seleccionada.</td> 
+              <td colSpan="9">No hay registros de compras para la base de datos seleccionada.</td> 
             </tr>
           )}
         </tbody>
@@ -828,6 +830,7 @@ function Ventas() {
             <th>Producto</th>
             <th>Cantidad</th>
             <th>Valor Unitario</th>
+            <th>Base de Datos</th> {/* Cambiado de Ciudad DB a Base de Datos */}
           </tr>
         </thead>
         <tbody>
@@ -841,7 +844,6 @@ function Ventas() {
                 </td>
                 <td>{v.id_Factura}</td>
                 <td>{v.fac_Fecha_Hora ? new Date(v.fac_Fecha_Hora).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                <td>{v.fac_Descripcion || 'N/A'}</td>
                 <td>${v.fac_Subtotal ? v.fac_Subtotal.toFixed(2) : '0.00'}</td>
                 <td>${v.fac_IVA ? v.fac_IVA.toFixed(2) : '0.00'}</td>
                 <td>${v.fac_Total ? v.fac_Total.toFixed(2) : '0.00'}</td> {/* Asumo fac_Total del backend */}
@@ -851,11 +853,12 @@ function Ventas() {
                 <td>{v.pxf_Cantidad || 'N/A'}</td>
                 {/* Solución al error: Comprobar si v.pxf_Valor es un número antes de llamar a toFixed() */}
                 <td>{typeof v.pxf_Valor === 'number' ? `$${v.pxf_Valor.toFixed(2)}` : 'N/A'}</td>
+                <td>{v.CiudadDB || 'N/A'}</td> {/* Muestra el nombre de la Base de Datos */}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan="12">No hay registros de ventas para la ciudad seleccionada.</td> {/* Colspan ajustado */}
+              <td colSpan="13">No hay registros de ventas disponibles para la base de datos seleccionada.</td> {/* Colspan ajustado */}
             </tr>
           )}
         </tbody>
@@ -999,7 +1002,7 @@ function Contabilidad() {
             <th>Fecha/Hora</th>
             <th>Descripción</th>
             <th>Estado</th>
-            <th>Ciudad DB</th>
+            <th>Base de Datos</th> {/* Cambiado de Ciudad DB a Base de Datos */}
           </tr>
         </thead>
         <tbody>
@@ -1030,13 +1033,13 @@ function Contabilidad() {
                 </td>
                 <td>{a.asi_Descripcion || "N/A"}</td>
                 <td>{a.ESTADO_ASI || "N/A"}</td>
-                <td>{a.CiudadDB || "N/A"}</td>
+                <td>{a.CiudadDB || "N/A"}</td> {/* Muestra el nombre de la Base de Datos */}
               </tr>
             ))
           ) : (
             <tr>
               <td colSpan="6">
-                No hay asientos contables disponibles para la ciudad seleccionada.
+                No hay asientos contables disponibles para la base de datos seleccionada.
               </td>
             </tr>
           )}
@@ -1206,7 +1209,7 @@ function Inventario() {
             <th>Fecha/Hora</th>
             <th>Num. Productos</th> {/* Nuevo */}
             <th>Estado</th>
-            <th>Ciudad DB</th>
+            <th>Base de Datos</th> {/* Cambiado de Ciudad DB a Base de Datos */}
           </tr>
         </thead>
         <tbody>
@@ -1224,12 +1227,12 @@ function Inventario() {
                 <td>{a.aju_FechaHora ? new Date(a.aju_FechaHora).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
                 <td>{a.aju_Num_Produc}</td> {/* Muestra el número de productos */}
                 <td>{a.ESTADO_AJU}</td>
-                <td>{a.CiudadDB || 'N/A'}</td>
+                <td>{a.CiudadDB || 'N/A'}</td> {/* Muestra el nombre de la Base de Datos */}
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan="8">No hay ajustes de inventario disponibles para la ciudad seleccionada.</td> {/* Colspan ajustado */}
+              <td colSpan="8">No hay ajustes de inventario disponibles para la base de datos seleccionada.</td> {/* Colspan ajustado */}
             </tr>
           )}
         </tbody>
@@ -1278,10 +1281,10 @@ function App() {
             <li className={location.pathname === "/inventario" ? "active" : ""}>
               <Link to="/inventario">Inventario</Link>
             </li>
-            {/* ELIMINADO: Ya no necesitamos este enlace según tu indicación */}
-            {/* <li className={location.pathname === "/general" ? "active" : ""}>
-              <Link to="/general">Log General</Link>
-            </li> */}
+            {/* ENLACE REINTEGRADO para el Log General */}
+            <li className={location.pathname === "/log-general" ? "active" : ""}>
+              <Link to="/log-general">Log General</Link>
+            </li>
           </ul>
         </nav>
       )}
@@ -1295,8 +1298,8 @@ function App() {
         <Route path="/ventas" element={<Ventas />} />
         <Route path="/contabilidad" element={<Contabilidad />} />
         <Route path="/inventario" element={<Inventario />} />
-        {/* ELIMINADO: Ya no necesitamos esta ruta según tu indicación */}
-        {/* <Route path="/general" element={<GeneralLog />} /> */}
+        {/* RUTA REINTEGRADA para el Log General */}
+        <Route path="/log-general" element={<GeneralLog />} />
       </Routes>
     </div>
   );
