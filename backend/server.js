@@ -863,9 +863,9 @@ app.get('/api/inventario/ajustes', async (req, res) => {
 });
 
 // Ruta para obtener el detalle de un ajuste de inventario por ID
-app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => { 
-    const { ciudad } = req.query; 
-    const { id: ajusteId } = req.params; 
+app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
+    const { ciudad } = req.query;
+    const { id: ajusteId } = req.params;
     let pool;
     try {
         if (!ciudad) {
@@ -874,24 +874,30 @@ app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
         pool = await getConnection(ciudad);
         const request = pool.request();
 
-        request.input('p_id_ajuste', sql.VarChar(50), ajusteId); 
-        
+        request.input('p_id_ajuste', sql.VarChar(50), ajusteId);
         const result = await request.execute('dbo.sp_ver_ajuste_completo_unido');
         pool.close();
-        
-        const headerData = result.recordsets[0]?.[0] || null;
-        const detailData = result.recordsets[1] || [];
 
-        if (!headerData) {
-            return res.status(404).send('Ajuste no encontrado o no pertenece a la ciudad.');
-        }
+        const rows = result.recordsets[0] || [];
 
-        const formattedResponse = {
-            header: headerData, 
-            details: detailData, 
-        };
+        // Separar por tipo
+        const headerRow = rows.find(r => r.tipo === 'CABECERA') || null;
+        const detailRows = rows.filter(r => r.tipo === 'DETALLE');
+        const totalRow = rows.find(r => r.tipo === 'TOTALES') || null;
 
-        res.json(formattedResponse);
+        // Mapear detalle
+        const formattedDetails = detailRows.map(row => ({
+            id_Producto: row.columna1?.replace('Producto: ', '') ?? '',
+            pro_Descripcion: row.columna2,
+            aju_Cantidad: row.columna4?.replace('Cantidad: ', '') ?? '',
+            ESTADO_AJUD: row.columna8?.replace('Estado PxA: ', '') ?? ''
+        }));
+
+        res.json({
+            header: headerRow,
+            details: formattedDetails,
+            totals: totalRow // opcional si deseas usarlo
+        });
     } catch (err) {
         console.error('Error al obtener el detalle del ajuste:', err);
         res.status(500).send('Error al obtener el detalle del ajuste.');

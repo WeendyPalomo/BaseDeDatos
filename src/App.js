@@ -1057,11 +1057,11 @@ function Contabilidad() {
 // NUEVO COMPONENTE: Ventana Modal para Detalle de Ajuste de Inventario
 // Renombrado de InventarioDetailModal para manejar detalles de AJUSTES
 function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
-  const [ajusteDetails, setAjusteDetails] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [ajusteDetails, setAjusteDetails] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState(null);
 
-  useEffect(() => {
+  React.useEffect(() => {
     if (!ajusteId || !ciudad) {
       setAjusteDetails(null);
       setLoading(false);
@@ -1113,7 +1113,6 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
             {ajusteDetails.header && (
               <div className="ajuste-header">
                 <h3>Información General del Ajuste</h3>
-                {/* Parsear y mostrar los valores según la imagen y el SP */}
                 <p><strong>ID Ajuste:</strong> {extractValue(ajusteDetails.header.columna1, 'Ajuste:')}</p>
                 <p><strong>Descripción:</strong> {extractValue(ajusteDetails.header.columna2, 'Descripción:')}</p>
                 <p><strong>Fecha/Hora:</strong> {ajusteDetails.header.columna3}</p>
@@ -1123,9 +1122,9 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
               </div>
             )}
 
-            {ajusteDetails.details && ajusteDetails.details.length > 0 && (
+            {ajusteDetails.details && ajusteDetails.details.length > 0 ? (
               <div className="ajuste-details">
-                <h3>Detalle de Productos</h3> {/* Título del detalle de productos */}
+                <h3>Detalle de Productos</h3>
                 <table className="detail-table">
                   <thead>
                     <tr>
@@ -1147,9 +1146,16 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
                   </tbody>
                 </table>
               </div>
-            )}
-            {!ajusteDetails.details || ajusteDetails.details.length === 0 && (
+            ) : (
               <p>No hay detalles de productos para este ajuste.</p>
+            )}
+
+            {/* Mostrar totales si existen */}
+            {ajusteDetails.totals && (
+              <div className="ajuste-totales" style={{ marginTop: '1rem' }}>
+                <h3>Totales</h3>
+                <p>{ajusteDetails.totals.columna6}</p>
+              </div>
             )}
           </div>
         )}
