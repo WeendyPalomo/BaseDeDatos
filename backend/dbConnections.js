@@ -3,28 +3,28 @@ require('dotenv').config();
 const sql = require('mssql');
 
 const configByCity = {
-  QUITO: {
+  QUI: {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     server: process.env.DB_SERVER,
     database: process.env.DB_NAME_QUITO,
     options: { encrypt: true, trustServerCertificate: true }
   },
-  GUAYAQUIL: {
+  GYE: {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     server: process.env.DB_SERVER,
     database: process.env.DB_NAME_GUAYAQUIL,
     options: { encrypt: true, trustServerCertificate: true }
   },
-  CUENCA: {
+  CUE: {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     server: process.env.DB_SERVER,
     database: process.env.DB_NAME_CUENCA,
     options: { encrypt: true, trustServerCertificate: true }
   },
-  MANTA: {
+  MAN: {
     user: process.env.DB_USER,
     password: process.env.DB_PASSWORD,
     server: process.env.DB_SERVER,
@@ -39,4 +39,5 @@ const getConnection = async (ciudad) => {
   return await sql.connect(dbConfig);
 };
 
-module.exports = { getConnection, sql };
+// --- IMPORTANTE: Ahora exportamos también configByCity ---
+module.exports = { getConnection, sql, configByCity };

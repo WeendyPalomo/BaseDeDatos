@@ -2,8 +2,14 @@
 import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Route, Routes, Link, useLocation } from "react-router-dom";
 import "./App.css"; // Asegúrate de que esta ruta sea correcta
-import Inicio from './Inicio'; // Importa el nuevo componente Inicio
-import GeneralLog from './GeneralLog'; // Importa el nuevo componente GeneralLog
+import Inicio from './Inicio'; // Importa el componente Inicio
+// import GeneralLog from './GeneralLog'; // ELIMINADO: Ya no necesitamos este import según tu indicación
+
+// --- Componentes Placeholder (ELIMINADOS: Eran duplicados y causaban el error) ---
+// Las implementaciones completas de estos componentes ya están más abajo en el archivo.
+// Si estos componentes existieran en archivos externos, se importarían aquí.
+// --- Fin Componentes Placeholder ---
+
 
 // Componente reutilizable para la selección de ciudad
 function CitySelect({ selectedCity, onCityChange }) {
@@ -11,6 +17,7 @@ function CitySelect({ selectedCity, onCityChange }) {
 
   useEffect(() => {
     // Obtener la lista de ciudades del backend
+    // Este endpoint de /api/ciudades debe devolver la lista de IDs de ciudades (QUI, GYE, etc.)
     fetch("http://localhost:3001/api/ciudades")
       .then((res) => res.json())
       .then((data) => setCiudades(data))
@@ -372,21 +379,21 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) { // Recibe tambi
 // Componente para el módulo de Empleados (Talento Humano)
 function Empleados() {
   const [empleados, setEmpleados] = useState([]);
-  const [selectedCity, setSelectedCity] = useState("ALL");
+  const [selectedCity, setSelectedCity] = useState("ALL"); // Estado local para la ciudad seleccionada
   const [showPayrollModal, setShowPayrollModal] = useState(false);
   const [currentEmployeeId, setCurrentEmployeeId] = useState(null);
   const [currentEmployeeCity, setCurrentEmployeeCity] = useState(null); // Nuevo estado para la ciudad del empleado
 
-
   useEffect(() => {
-    const queryParam = selectedCity !== "ALL" ? `?ciudad=${selectedCity}` : "";
-    fetch(`http://localhost:3001/api/empleados${queryParam}`)
+    // Construir el parámetro de consulta para la ciudad
+    const queryParam = selectedCity !== "ALL" ? `?city=${selectedCity}` : "";
+    fetch(`http://localhost:3001/api/empleados${queryParam}`) // Asegúrate que este endpoint exista en server.js
       .then((res) => res.json())
       .then((data) => setEmpleados(data))
       .catch((err) => console.error("Error al obtener empleados:", err));
-  }, [selectedCity]);
+  }, [selectedCity]); // Re-fetch cuando la ciudad seleccionada cambie
 
-  const handleViewPayroll = (id, ciudadDb) => { // Recibe también la ciudad de la DB
+  const handleViewPayroll = (id, ciudadDb) => { // Recibe también la ciudad de la DB del empleado
     setCurrentEmployeeId(id);
     setCurrentEmployeeCity(ciudadDb);
     setShowPayrollModal(true);
@@ -402,6 +409,7 @@ function Empleados() {
   return (
     <div style={{ padding: "2rem" }}>
       <h1>Talento Humano (Empleados)</h1>
+      {/* CitySelect dentro del componente Empleados para su propio filtro */}
       <CitySelect selectedCity={selectedCity} onCityChange={setSelectedCity} />
       <table border="1" cellPadding="10" style={{ marginTop: "1rem" }}>
         <thead>
@@ -480,70 +488,27 @@ function PurchaseOrderDetailModal({ compraId, onClose, ciudad }) {
 
     setLoading(true);
     setError(null);
+
     fetch(`http://localhost:3001/api/compras/detalle/${compraId}?ciudad=${ciudad}`)
       .then((res) => {
-        // Log the response status and text if it's not OK
         if (!res.ok) {
-          console.error(`Backend responded with status: ${res.status}`);
-          return res.text().then(text => { 
-            throw new Error(`HTTP error! status: ${res.status}, body: ${text}`); 
+          return res.text().then(text => {
+            throw new Error(`HTTP error! status: ${res.status}, body: ${text}`);
           });
         }
         return res.json();
       })
       .then((data) => {
-        // console.log("Datos recibidos del backend para detalle de compra:", data); // Log received data
-        
-        // Asumiendo que 'data' es un array plano del SP como en la imagen
-        let headerData = null;
-        const detailData = [];
-        let totalsData = null;
-
-        data.forEach(row => {
-            if (row.tipo === 'OC_CABECERA') {
-                headerData = {
-                    id_orden_compra: row.col1,
-                    proveedor_id: row.col2,
-                    fecha_hora: row.col3,
-                    estado_orden: row.col4,
-                    usuario: row.col5,
-                };
-            } else if (row.tipo === 'OC_DETALLE') {
-                detailData.push({
-                    id_producto: row.col1,
-                    cantidad: row.col2,
-                    precio_unitario: row.col3,
-                    // col4 es NULL en tu imagen, col5 es el subtotal
-                    subtotal_producto: row.col5, 
-                });
-            } else if (row.tipo === 'TOTALES') {
-                // Parsear los strings como "Subtotal=X.XX", "IVA=Y.YY", "Total=Z.ZZ"
-                const subtotalMatch = row.col1 ? String(row.col1).match(/Subtotal=([0-9.]+)/) : null;
-                const ivaMatch = row.col2 ? String(row.col2).match(/IVA=([0-9.]+)/) : null;
-                const totalMatch = row.col3 ? String(row.col3).match(/Total=([0-9.]+)/) : null;
-
-                totalsData = {
-                    subtotal: subtotalMatch ? parseFloat(subtotalMatch[1]) : 0.00,
-                    iva: ivaMatch ? parseFloat(ivaMatch[1]) : 0.00,
-                    total: totalMatch ? parseFloat(totalMatch[1]) : 0.00,
-                };
-            }
-        });
-
-        const formattedResponse = {
-          header: headerData,
-          details: detailData,
-          totals_summary: totalsData,
-        };
-
-        console.log("Datos formateados para el detalle de compra:", formattedResponse); // Log formatted data
-
-        setCompraDetails(formattedResponse);
+        // Validar estructura recibida desde backend
+        if (!data.header || !data.details || !data.totals_summary) {
+          throw new Error("Formato de datos inesperado");
+        }
+        setCompraDetails(data);
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Error al obtener detalles de la orden de compra (frontend):", err); // More specific log
-        setError(`Error al cargar los detalles de la orden de compra: ${err.message}`); // Show error message from backend if available
+        console.error("Error al obtener detalles de la orden de compra (frontend):", err);
+        setError(`Error al cargar los detalles de la orden de compra: ${err.message}`);
         setLoading(false);
       });
   }, [compraId, ciudad]);
@@ -561,17 +526,17 @@ function PurchaseOrderDetailModal({ compraId, onClose, ciudad }) {
 
         {compraDetails && (
           <div className="compra-detail-container">
-            {compraDetails.header ? ( // Use optional chaining for safer access
+            {compraDetails.header ? (
               <div className="compra-header">
                 <h3>Información General</h3>
                 <p><strong>ID Orden Compra:</strong> {compraDetails.header.id_orden_compra || 'N/A'}</p>
-                <p><strong>ID Proveedor:</strong> {compraDetails.header.proveedor_id || 'N/A'}</p> 
-                <p><strong>Fecha/Hora:</strong> {compraDetails.header.fecha_hora ? new Date(compraDetails.header.fecha_hora).toLocaleString('es-ES') : 'N/A'}</p> 
-                <p><strong>Estado:</strong> {compraDetails.header.estado_orden || 'N/A'}</p> 
-                <p><strong>Usuario:</strong> {compraDetails.header.usuario || 'N/A'}</p> 
+                <p><strong>ID Proveedor:</strong> {compraDetails.header.proveedor_id || 'N/A'}</p>
+                <p><strong>Fecha/Hora:</strong> {compraDetails.header.fecha_hora ? new Date(compraDetails.header.fecha_hora).toLocaleString('es-ES') : 'N/A'}</p>
+                <p><strong>Estado:</strong> {compraDetails.header.estado_orden || 'N/A'}</p>
+                <p><strong>Usuario:</strong> {compraDetails.header.usuario || 'N/A'}</p>
               </div>
             ) : (
-                <p>No se encontró la cabecera de la orden de compra.</p>
+              <p>No se encontró la cabecera de la orden de compra.</p>
             )}
 
             {compraDetails.details && compraDetails.details.length > 0 ? (
@@ -591,15 +556,15 @@ function PurchaseOrderDetailModal({ compraId, onClose, ciudad }) {
                       <tr key={item.id_producto || index}>
                         <td>{item.id_producto || 'N/A'}</td>
                         <td>{item.cantidad || 'N/A'}</td>
-                        <td>${item.precio_unitario ? item.precio_unitario.toFixed(2) : '0.00'}</td>
-                        <td>${item.subtotal_producto ? item.subtotal_producto.toFixed(2) : '0.00'}</td>
+                        <td>${item.precio_unitario ? Number(item.precio_unitario).toFixed(2) : '0.00'}</td>
+                        <td>${item.subtotal_producto ? Number(item.subtotal_producto).toFixed(2) : '0.00'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             ) : (
-                <p>No hay detalles de productos para esta orden de compra.</p>
+              <p>No hay detalles de productos para esta orden de compra.</p>
             )}
 
             {compraDetails.totals_summary ? (
@@ -610,7 +575,7 @@ function PurchaseOrderDetailModal({ compraId, onClose, ciudad }) {
                 <p><strong>Total:</strong> ${compraDetails.totals_summary.total ? compraDetails.totals_summary.total.toFixed(2) : '0.00'}</p>
               </div>
             ) : (
-                <p>No se encontraron totales para esta orden de compra.</p>
+              <p>No se encontraron totales para esta orden de compra.</p>
             )}
           </div>
         )}
@@ -618,7 +583,6 @@ function PurchaseOrderDetailModal({ compraId, onClose, ciudad }) {
     </div>
   );
 }
-
 
 // Componente para el módulo de Compras
 function Compras() {
@@ -830,14 +794,12 @@ function Ventas() {
       .catch((err) => console.error("Error al obtener ventas:", err));
   }, [selectedCity]); // Re-fetch cuando la ciudad seleccionada cambie
 
-  // Manejador para el botón "Ver Detalle" en Ventas
   const handleViewDetail = (id, ciudadDb) => {
     setCurrentFacturaId(id);
     setCurrentFacturaCiudad(ciudadDb);
     setShowDetailModal(true);
   };
 
-  // Manejador para cerrar el modal de detalle de factura
   const handleCloseModal = () => {
     setShowDetailModal(false);
     setCurrentFacturaId(null);
@@ -912,7 +874,7 @@ function Ventas() {
 // NUEVO COMPONENTE: Ventana Modal para Detalle de Asiento Contable
 function AsientoDetailModal({ asientoId, onClose, ciudad }) {
   const [asientoDetails, setAsientoDetails] = useState(null);
-  const [loading, setLoading] = true;
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -1086,7 +1048,7 @@ function Contabilidad() {
 // Renombrado de InventarioDetailModal para manejar detalles de AJUSTES
 function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
   const [ajusteDetails, setAjusteDetails] = useState(null);
-  const [loading, setLoading] = true;
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
@@ -1302,22 +1264,25 @@ function App() {
             <li className={location.pathname === "/inventario" ? "active" : ""}>
               <Link to="/inventario">Inventario</Link>
             </li>
-            <li className={location.pathname === "/general" ? "active" : ""}> {/* Nuevo enlace para Log General */}
+            {/* ELIMINADO: Ya no necesitamos este enlace según tu indicación */}
+            {/* <li className={location.pathname === "/general" ? "active" : ""}>
               <Link to="/general">Log General</Link>
-            </li>
+            </li> */}
           </ul>
         </nav>
       )}
 
       <Routes>
         <Route path="/" element={<Inicio />} />
-        <Route path="/facturas" element={<Facturas />} /> {/* Mantener la ruta por si se llega de otra forma o se desea añadir de nuevo */}
+        {/* Mantener la ruta por si se llega de otra forma o se desea añadir de nuevo */}
+        <Route path="/facturas" element={<Facturas />} /> 
         <Route path="/empleados" element={<Empleados />} />
         <Route path="/compras" element={<Compras />} />
         <Route path="/ventas" element={<Ventas />} />
         <Route path="/contabilidad" element={<Contabilidad />} />
         <Route path="/inventario" element={<Inventario />} />
-        <Route path="/general" element={<GeneralLog />} /> {/* Nueva ruta para Log General */}
+        {/* ELIMINADO: Ya no necesitamos esta ruta según tu indicación */}
+        {/* <Route path="/general" element={<GeneralLog />} /> */}
       </Routes>
     </div>
   );

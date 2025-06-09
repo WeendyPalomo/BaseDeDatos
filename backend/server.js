@@ -1,11 +1,13 @@
 // server.js
 
-require('dotenv').config(); // Carga las variables de entorno
-const express = require('express');
-const cors = require('cors');
-const sql = require('mssql');
+// ¡IMPORTANTE! Esta línea debe ir al principio del archivo para cargar las variables de entorno
+require('dotenv').config();
 
+const express = require('express');
 const app = express();
+const sql = require('mssql');
+const cors = require('cors'); // Para permitir peticiones desde el frontend
+
 app.use(cors()); // Habilitar CORS para todas las rutas
 app.use(express.json()); // Habilitar el uso de JSON en las peticiones
 
@@ -18,7 +20,7 @@ const configByCity = {
     database: process.env.DB_NAME_QUITO,
     options: {
       encrypt: true,
-      trustServerCertificate: true // Cambiar a false en producción si usas certificados válidos
+      trustServerCertificate: true
     }
   },
   GYE: {
@@ -99,20 +101,16 @@ const getConnection = async (cityCode) => {
 // --- Rutas de la API ---
 
 // Ruta para obtener las ciudades
-app.get('/api/ciudades', (req, res) => {
-    // Genera la lista de ciudades dinámicamente desde configByCity
-    const ciudadesDisponibles = Object.keys(configByCity).map(key => {
-        let ciu_descripcion = '';
-        switch(key) {
-            case 'QUI': ciu_descripcion = 'Quito'; break;
-            case 'GYE': ciu_descripcion = 'Guayaquil'; break;
-            case 'CUE': ciu_descripcion = 'Cuenca'; break;
-            case 'MAN': ciu_descripcion = 'Manta'; break;
-            default: ciu_descripcion = key; // Fallback
-        }
-        return { id_Ciudad: key, ciu_descripcion: ciu_descripcion };
-    });
-    res.json(ciudadesDisponibles);
+app.get('/api/ciudades', async (req, res) => {
+    try {
+        const pool = await getConnection('QUI'); // Usamos Quito como base de referencia para ciudades
+        const result = await pool.request().query('SELECT id_Ciudad, ciu_descripcion FROM CIUDADES ORDER BY ciu_descripcion');
+        pool.close(); // Cerrar la conexión después de usarla
+        res.json(result.recordset);
+    } catch (err) {
+        console.error('Error al obtener ciudades:', err);
+        res.status(500).send('Error al obtener ciudades');
+    }
 });
 
 // Facturas por ciudad o todas
@@ -130,6 +128,7 @@ app.get('/api/facturas', async (req, res) => {
                     const request = pool.request();
                     request.input('p_id_ciudad', sql.Char(3), null); // Enviar NULL al SP para listar todas las facturas de esa DB
                     const result = await request.execute('dbo.sp_facturas_listar_resumen_con_ciudad');
+                    pool.close(); // Cerrar el pool después de usarlo
                     return result.recordset.map(f => ({ ...f, CiudadDB: c })); // Añade el código de la ciudad de origen
                 } catch (innerErr) {
                     console.error(`Error al obtener facturas de ${c}:`, innerErr);
@@ -144,6 +143,7 @@ app.get('/api/facturas', async (req, res) => {
                 const request = pool.request();
                 request.input('p_id_ciudad', sql.Char(3), ciudad);
                 const result = await request.execute('dbo.sp_facturas_listar_resumen_con_ciudad');
+                pool.close(); // Cerrar el pool después de usarlo
                 facturasResult = result.recordset;
             }
             catch (err) { // Captura de errores específica para la conexión/ejecución
@@ -171,6 +171,7 @@ app.get('/api/facturas/detalle/:id', async (req, res) => {
         const result = await pool.request()
             .input('p_id_factura', sql.Char(15), id)
             .execute('dbo.sp_ver_factura_completa');
+        pool.close(); // Cerrar el pool después de usarlo
 
         const headerData = result.recordsets[0]?.[0] || null;
         const detailData = result.recordsets[1] || [];
@@ -235,9 +236,10 @@ app.get('/api/empleados', async (req, res) => {
                         ORDER BY E.emp_Apellido1, E.emp_Nombre1
                     `;
                     const result = await currentPool.request().query(query);
+                    currentPool.close(); // Cerrar el pool después de usarlo
                     return result.recordset.map(e => ({ ...e, CiudadDB: c })); // Añade el código de la ciudad de origen (DB)
                 } catch (innerErr) {
-                    console.error(`[API Empleados] Error al obtener empleados de ${c}:`, innerErr);
+                    console.error(`Error al obtener empleados de ${c}:`, innerErr);
                     return [];
                 }
             });
@@ -264,6 +266,7 @@ app.get('/api/empleados', async (req, res) => {
                 const request = pool.request();
                 request.input('ciudad', sql.Char(3), ciudad);
                 const result = await request.query(query);
+                pool.close(); // Cerrar el pool después de usarlo
                 empleadosResult = result.recordset.map(e => ({ ...e, CiudadDB: ciudad })); // También añade la ciudad de la DB de origen
             } catch (err) {
                 console.error(`[API Empleados] Error al obtener empleados para la ciudad ${ciudad}:`, err);
@@ -304,6 +307,7 @@ app.get('/api/compras', async (req, res) => {
                         ORDER BY oc_Fecha_Hora DESC;
                     `;
                     const result = await request.query(query);
+                    currentPool.close(); // Cerrar el pool después de usarlo
                     return result.recordset.map(item => ({
                         id_Compra: item.id_Compra,
                         id_Proveedor: item.id_Proveedor, 
@@ -339,6 +343,7 @@ app.get('/api/compras', async (req, res) => {
                 `;
                 request.input('ciudad', sql.Char(3), ciudad); 
                 const result = await request.query(query);
+                pool.close(); // Cerrar el pool después de usarlo
                 comprasResult = result.recordset.map(item => ({
                     id_Compra: item.id_Compra,
                     id_Proveedor: item.id_Proveedor,
@@ -368,16 +373,22 @@ app.get('/api/compras/detalle/:id', async (req, res) => {
     const { id: compraId } = req.params; 
     let pool;
     try {
+        console.log(`[Compras Detalle Backend] Recibida solicitud para ID: ${compraId}, Ciudad: ${ciudad}`);
+
         if (!ciudad) {
             return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle de la orden de compra.');
         }
         pool = await getConnection(ciudad);
         const request = pool.request();
 
-        request.input('p_id_oc', sql.VarChar(7), compraId); 
+        // CORRECCIÓN: El nombre del parámetro debe ser 'p_id_compra' para que coincida con el SP
+        request.input('p_id_compra', sql.VarChar(7), compraId); 
 
         const result = await request.execute('dbo.sp_ver_oc_completa');
+        pool.close(); // Cerrar el pool después de usarlo
         
+        console.log(`[Compras Detalle Backend] Raw result from SP for ${compraId}:`, JSON.stringify(result.recordsets, null, 2));
+
         // El SP dbo.sp_ver_oc_completa devuelve un único recordset que mezcla la cabecera, detalles y totales.
         // Necesitamos parsear este recordset para estructurarlo para el frontend.
         const rawData = result.recordsets[0] || [];
@@ -392,21 +403,19 @@ app.get('/api/compras/detalle/:id', async (req, res) => {
                     proveedor_id: row.col2,
                     fecha_hora: row.col3,
                     estado_orden: row.col4,
-                    usuario: row.col5, // Asumo que col5 es el usuario o similar
+                    usuario: row.col5, 
                 };
             } else if (row.tipo === 'OC_DETALLE') {
                 detailData.push({
                     id_producto: row.col1,
                     cantidad: row.col2,
                     precio_unitario: row.col3,
-                    subtotal_producto: row.col5, // col5 es el subtotal del producto
-                    // col4 es NULL en la imagen, si es un estado de detalle en tu DB, mapearlo aquí
+                    subtotal_producto: row.col5, 
                 });
             } else if (row.tipo === 'TOTALES') {
-                // Parsear los strings como "Subtotal=X.XX", "IVA=Y.YY", "Total=Z.ZZ"
-                const subtotalMatch = row.col1 ? row.col1.match(/Subtotal=([0-9.]+)/) : null;
-                const ivaMatch = row.col2 ? row.col2.match(/IVA=([0-9.]+)/) : null;
-                const totalMatch = row.col3 ? row.col3.match(/Total=([0-9.]+)/) : null;
+                const subtotalMatch = row.col1 ? String(row.col1).match(/Subtotal=([0-9.]+)/) : null;
+                const ivaMatch = row.col2 ? String(row.col2).match(/IVA=([0-9.]+)/) : null;
+                const totalMatch = row.col3 ? String(row.col3).match(/Total=([0-9.]+)/) : null;
 
                 totalsData = {
                     subtotal: subtotalMatch ? parseFloat(subtotalMatch[1]) : 0.00,
@@ -417,18 +426,19 @@ app.get('/api/compras/detalle/:id', async (req, res) => {
         });
 
         if (!headerData) {
+            console.warn(`[Compras Detalle Backend] No se encontró cabecera para la orden de compra ${compraId}.`);
             return res.status(404).send('Detalle de orden de compra no encontrado.');
         }
 
         const formattedResponse = {
             header: headerData,
             details: detailData,
-            totals_summary: totalsData, // Ahora es un objeto con subtotal, iva, total
+            totals_summary: totalsData, 
         };
-
+        console.log(`[Compras Detalle Backend] Formatted response for ${compraId}:`, JSON.stringify(formattedResponse, null, 2));
         res.json(formattedResponse);
     } catch (err) {
-        console.error('Error al obtener el detalle de la orden de compra:', err);
+        console.error(`[Compras Detalle Backend] Error al obtener el detalle de la orden de compra ${compraId}:`, err);
         res.status(500).send('Error al obtener el detalle de la orden de compra.');
     }
 });
@@ -450,105 +460,64 @@ app.get('/api/empleados/payroll/:id', async (req, res) => {
         let mainPayrollRaw = [];
         let payrollDetailsRaw = [];
 
-        // Si el año o el mes son 'ALL', hacemos consulta directa y filtramos en Node.js
-        if (year === 'ALL' || month === 'ALL') {
-            // Consulta directa para obtener TODOS los roles de pago del empleado
-            const mainPayrollQuery = `
-                SELECT
-                    id_Pago AS Pago,
-                    id_Empleado AS Empleado,
-                    emp_Sueldo AS Sueldo,
-                    emp_Bonificaciones AS Bonificaciones,
-                    emp_Descuentos AS Descuentos,
-                    emp_Valor_Neto AS Neto,
-                    ESTADO_PxE AS Estado
-                FROM PagxEmp
-                WHERE id_Empleado = @employeeId
-                ORDER BY id_Pago DESC;
-            `;
-            const mainResult = await pool.request()
-                .input('employeeId', sql.VarChar(10), employeeId)
-                .query(mainPayrollQuery);
-            mainPayrollRaw = mainResult.recordset;
+        // Siempre pasamos NULL al SP para year y month para que (ASUMIENDO QUE EL SP HA SIDO MODIFICADO PARA IGNORAR NULLS)
+        // nos devuelva todos los roles de pago para ese empleado.
+        // Luego, filtramos en el backend si el SP no lo hace correctamente (lo cual es tu caso actual).
+        const spYearParam = null; // Siempre enviamos null al SP para que devuelva todo
+        const spMonthParam = null; // Siempre enviamos null al SP para que devuelva todo
+        console.log(`[PAYROLL DEBUG] Enviando al SP - p_emp_codigo: ${employeeId}, p_year: ${spYearParam}, p_month: ${spMonthParam}`);
 
-            // Consulta directa para obtener TODOS los detalles de bonificaciones/descuentos del empleado
-            const detailsQuery = `
-                SELECT
-                    id_Bonificacion AS id_detalle,
-                    'BON' AS tipo_detalle,
-                    bxe_Fecha AS fecha,
-                    bxe_Valor AS valor,
-                    ESTADO_BXE AS estado,
-                    id_Empleado,
-                    id_Pago
-                FROM BonxEmpxPag
-                WHERE id_Empleado = @employeeId
+        const request = pool.request();
+        request.input('p_emp_codigo', sql.VarChar(10), employeeId);
+        request.input('p_year', sql.Char(4), spYearParam); 
+        request.input('p_month', sql.Char(2), spMonthParam); 
 
-                UNION ALL
+        const result = await request.execute('dbo.sp_tthh_ver_detalle_pago_empleado');
+        pool.close(); // Cerrar el pool después de usarlo
 
-                SELECT
-                    id_Descuento AS id_detalle,
-                    'DES' AS tipo_detalle,
-                    dxe_Fecha AS fecha,
-                    dxe_Valor AS valor,
-                    ESTADO_DXE AS estado,
-                    id_Empleado,
-                    id_Pago
-                FROM DesxEmpxPag
-                WHERE id_Empleado = @employeeId
-                ORDER BY fecha DESC, tipo_detalle, id_detalle;
-            `;
-            const detailsResult = await pool.request()
-                .input('employeeId', sql.VarChar(10), employeeId)
-                .query(detailsQuery);
-            payrollDetailsRaw = detailsResult.recordset;
+        console.log('[PAYROLL DEBUG] Raw recordsets from SP:', JSON.stringify(result.recordsets, null, 2));
 
-            // Aplicar el filtrado por año y mes en Node.js si no son 'ALL'
-            let filteredMainPayroll = mainPayrollRaw;
-            let filteredPayrollDetails = payrollDetailsRaw;
+        const mainPayrollRawFromSP = result.recordsets[0] || [];
+        const payrollDetailsRawFromSP = result.recordsets[1] || [];
 
-            if (year !== 'ALL' || month !== 'ALL') {
-                const targetYear = year !== 'ALL' ? parseInt(year) : null;
-                const targetMonth = month !== 'ALL' ? month : null;
+        // Log de los datos separados
+        console.log('[PAYROLL DEBUG] mainPayrollRawFromSP:', mainPayrollRawFromSP);
+        console.log('[PAYROLL DEBUG] payrollDetailsRawFromSP:', payrollDetailsRawFromSP);
 
-                filteredMainPayroll = mainPayrollRaw.filter(item => {
-                    if (!item.Pago) return false;
-                    const [itemYearStr, itemMonthStr] = item.Pago.split('-'); // FormatoYYYY-MM
-                    const itemYearNum = parseInt(itemYearStr);
+        let filteredMainPayroll = mainPayrollRawFromSP;
+        let filteredPayrollDetails = payrollDetailsRawFromSP;
 
-                    const matchYear = (targetYear === null || itemYearNum === targetYear);
-                    const matchMonth = (targetMonth === null || itemMonthStr === targetMonth);
-                    return matchYear && matchMonth;
-                });
+        // APLICAR FILTRADO EN NODE.JS SI EL AÑO O EL MES NO SON 'ALL'
+        if (year !== 'ALL' || month !== 'ALL') {
+            const targetYear = parseInt(year);
+            const targetMonth = month; 
 
-                const filteredPaymentPeriods = new Set(filteredMainPayroll.map(item => item.Pago));
-                filteredPayrollDetails = payrollDetailsRaw.filter(detailItem => {
-                    return filteredPaymentPeriods.has(detailItem.id_Pago) && detailItem.id_Empleado === employeeId;
-                });
-            }
-            mainPayrollRaw = filteredMainPayroll; // Actualiza con los datos ya filtrados en Node.js
-            payrollDetailsRaw = filteredPayrollDetails; // Actualiza con los datos ya filtrados en Node.js
+            filteredMainPayroll = mainPayrollRawFromSP.filter(item => {
+                if (!item.Pago) return false;
+                const [itemYear, itemMonth] = item.Pago.split('-'); 
+                const itemYearNum = parseInt(itemYear);
 
-        } else {
-            // Si año y mes son específicos, se llama al SP (como antes)
-            const request = pool.request();
-            request.input('p_emp_codigo', sql.VarChar(10), employeeId);
-            request.input('p_year', sql.Char(4), year); // Pasar el año específico
-            request.input('p_month', sql.Char(2), month); // Pasar el mes específico
+                const matchYear = (year === 'ALL' || itemYearNum === targetYear);
+                const matchMonth = (month === 'ALL' || itemMonth === targetMonth);
+                
+                return matchYear && matchMonth;
+            });
 
-            const result = await request.execute('dbo.sp_tthh_ver_detalle_pago_empleado');
-            mainPayrollRaw = result.recordsets[0] || [];
-            payrollDetailsRaw = result.recordsets[1] || [];
+            const filteredPaymentPeriods = new Set(filteredMainPayroll.map(item => item.Pago));
+            const filteredEmployeeIds = new Set(filteredMainPayroll.map(item => item.Empleado));
+
+            filteredPayrollDetails = payrollDetailsRawFromSP.filter(detailItem => {
+                return filteredPaymentPeriods.has(detailItem.id_Pago) && filteredEmployeeIds.has(detailItem.id_Empleado);
+            });
         }
 
-        // Combinar los detalles con el resumen de pago
-        const combinedPayroll = mainPayrollRaw.map(mainItem => {
-            const itemDetails = payrollDetailsRaw.filter(detailItem =>
+        const combinedPayroll = filteredMainPayroll.map(mainItem => {
+            const itemDetails = filteredPayrollDetails.filter(detailItem => 
                 detailItem.id_Empleado === mainItem.Empleado && detailItem.id_Pago === mainItem.Pago
             ).map(detailItem => ({
                 id_detalle: detailItem.id_detalle,
                 tipo_detalle: detailItem.tipo_detalle,
-                fecha_detalle: detailItem.fecha,
+                fecha_detalle: detailItem.fecha, 
                 valor_detalle: detailItem.valor,
                 estado_detalle: detailItem.estado
             }));
@@ -561,88 +530,105 @@ app.get('/api/empleados/payroll/:id', async (req, res) => {
                 descuentos: mainItem.Descuentos,
                 neto_a_pagar: mainItem.Neto,
                 estado_pago: mainItem.Estado,
-                details: itemDetails
+                details: itemDetails 
             };
         });
 
         res.json({ mainPayroll: combinedPayroll });
     } catch (err) {
-        console.error('Error al obtener el rol de pago:', err);
-        res.status(500).send('Error al obtener el rol de pago');
+        console.error('Error al obtener el rol de pago del empleado:', err);
+        res.status(500).send('Error al obtener el rol de pago del empleado.');
     }
 });
 
 
-// Ruta para Ventas (por ciudad o todas)
-app.get('/api/ventas', async (req, res) => {
-    const ciudad = req.query.ciudad || 'ALL'; // Valor por defecto 'ALL'
+// NUEVA RUTA: Obtener rol de pago de empleado utilizando fn_visualizar_rol
+app.get('/api/rol/:idEmpleado', async (req, res) => {
+    const empleado = req.params.idEmpleado;
     let pool;
     try {
-        let ventasResult = [];
-        const allCities = Object.keys(configByCity);
+        // Conectar a la base de datos (asumimos Quito como la base donde reside la información de Pagos)
+        pool = await getConnection('QUI');
+        
+        // 1. Obtener el id_Pago más reciente para el empleado
+        const resultId = await pool.request()
+            .input('empleado', sql.Char(7), empleado)
+            .query(`
+                SELECT TOP 1 p.id_Pago
+                FROM Pagos p
+                JOIN BonxEmpxPag b ON p.id_Pago = b.id_Pago
+                WHERE b.id_Empleado = @empleado
+                ORDER BY p.pag_Fecha_Inicio DESC;
+            `);
 
-        if (ciudad === 'ALL') {
-            const promesasVentas = allCities.map(async c => {
-                let currentPool;
-                try {
-                    currentPool = await getConnection(c);
-                    const request = currentPool.request();
-                    request.input('p_id_ciudad', sql.Char(3), null); 
-                    const result = await request.execute('dbo.sp_facturas_listar_resumen_con_ciudad');
-                    return result.recordset.map(f => ({ 
-                        id_Factura: f.id_Factura,
-                        fac_Fecha_Hora: f.fac_Fecha_Hora,
-                        fac_Descripcion: f.fac_Descripcion,
-                        fac_Subtotal: f.fac_Subtotal,
-                        fac_IVA: f.fac_IVA,
-                        fac_Total: f.fac_Total,
-                        cli_Nombre: f.cli_Nombre_Completo, 
-                        CiudadCliente: f.CiudadCliente, 
-                        pro_Descripcion: 'N/A', 
-                        pxf_Cantidad: 'N/A',
-                        pxf_Valor: 'N/A',
-                        ESTADO_FAC: f.ESTADO_FAC,
-                        CiudadDB: c 
-                    }));
-                } catch (innerErr) {
-                    console.error(`Error al obtener ventas de ${c}:`, innerErr);
-                    return [];
-                }
-            });
-            ventasResult = (await Promise.all(promesasVentas)).flat();
-        } else {
-            try {
-                pool = await getConnection(ciudad);
-                const request = pool.request();
-                request.input('p_id_ciudad', sql.Char(3), ciudad);
-                const result = await request.execute('dbo.sp_facturas_listar_resumen_con_ciudad');
-                ventasResult = result.recordset.map(f => ({
-                    id_Factura: f.id_Factura,
-                    fac_Fecha_Hora: f.fac_Fecha_Hora,
-                    fac_Descripcion: f.fac_Descripcion,
-                    fac_Subtotal: f.fac_Subtotal,
-                    fac_IVA: f.fac_IVA,
-                    fac_Total: f.fac_Total,
-                    cli_Nombre: f.cli_Nombre_Completo,
-                    CiudadCliente: f.CiudadCliente,
-                    pro_Descripcion: 'N/A',
-                    pxf_Cantidad: 'N/A',
-                    pxf_Valor: 'N/A',
-                    ESTADO_FAC: f.ESTADO_FAC,
-                }));
-            } catch (err) { 
-                console.error(`Error al obtener ventas para la ciudad ${ciudad}:`, err);
-                return res.status(500).send(`Error al obtener ventas para la ciudad ${ciudad}`);
-            }
+        const idPago = resultId.recordset[0]?.id_Pago;
+
+        if (!idPago) {
+            pool.close();
+            return res.status(404).json({ error: 'No se encontró un rol para este empleado con bonificaciones.' });
         }
-        res.json(ventasResult);
+
+        // 2. Usar el id_Pago para llamar a la función fn_visualizar_rol
+        const rol = await pool.request()
+            .input('id_Pago', sql.Char(7), idPago) 
+            .query(`SELECT * FROM dbo.fn_visualizar_rol(@id_Pago)`);
+        
+        pool.close();
+        res.json(rol.recordset);
     } catch (err) {
-        console.error('Error general al obtener ventas:', err);
-        res.status(500).send('Error al obtener ventas');
+        console.error('Error al obtener el rol del empleado:', err);
+        if (pool) pool.close(); 
+        res.status(500).send('Error al obtener el rol del empleado.');
     }
 });
 
-// ENDPOINTS PARA CONTABILIDAD
+
+// Ruta para Ventas (Asumimos que es un listado similar a Facturas, pero con detalle de productos)
+app.get('/api/ventas', async (req, res) => {
+  try {
+    const { ciudad } = req.query;
+    
+    const pool = await getConnection('QUI'); // Asumimos una base para Ventas (ej: Quito)
+    const request = pool.request();
+
+    let query = `
+      SELECT
+          F.id_Factura,
+          F.fac_Fecha_Hora,
+          F.fac_Descripcion,
+          F.fac_Subtotal,
+          F.fac_IVA,
+          (F.fac_Subtotal + F.fac_IVA) AS fac_Total,
+          C.cli_Nombre AS cli_Nombre,
+          CIU.ciu_descripcion AS CiudadCliente,
+          CIU.id_Ciudad AS id_Ciudad_Cliente,
+          PF.id_Producto,
+          P.pro_Descripcion,
+          PF.pxf_Cantidad,
+          PF.pxf_Valor
+      FROM FACTURAS F
+      INNER JOIN CLIENTES C ON F.id_Cliente = C.id_Cliente
+      INNER JOIN CIUDADES CIU ON C.id_Ciudad = CIU.id_Ciudad
+      INNER JOIN PROXFAC PF ON F.id_Factura = PF.id_Factura
+      INNER JOIN PRODUCTOS P ON PF.id_Producto = P.id_Producto
+    `;
+
+    if (ciudad && ciudad !== 'ALL') {
+      query += ` WHERE CIU.id_Ciudad = @ciudad`;
+      request.input('ciudad', sql.Char(3), ciudad);
+    }
+    query += ` ORDER BY F.fac_Fecha_Hora DESC, F.id_Factura, P.pro_Descripcion`;
+
+    const result = await request.query(query);
+    pool.close(); // Cerrar el pool después de usarlo
+    res.json(result.recordset);
+  } catch (err) {
+    console.error('Error al obtener ventas:', err);
+    res.status(500).send('Error al obtener ventas');
+  }
+});
+
+// NUEVOS ENDPOINTS PARA CONTABILIDAD
 
 // Ruta para listar asientos contables (resumen)
 app.get('/api/contabilidad/asientos', async (req, res) => {
@@ -668,6 +654,7 @@ app.get('/api/contabilidad/asientos', async (req, res) => {
                         ORDER BY asi_Fecha_Hora DESC, id_Asiento DESC;
                     `;
                     const result = await request.query(query);
+                    currentPool.close();
                     return result.recordset.map(a => ({ ...a, CiudadDB: c }));
                 } catch (innerErr) {
                     console.error(`Error al obtener asientos de ${c}:`, innerErr);
@@ -689,6 +676,7 @@ app.get('/api/contabilidad/asientos', async (req, res) => {
                     ORDER BY asi_Fecha_Hora DESC, id_Asiento DESC;
                 `;
                 const result = await request.query(query);
+                pool.close();
                 asientosResult = result.recordset;
             } catch (err) { 
                 console.error(`Error al obtener asientos para la ciudad ${ciudad}:`, err);
@@ -717,6 +705,7 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
         request.input('p_id_Asiento', sql.VarChar(7), asientoId); 
 
         const result = await request.execute('dbo.sp_ver_asiento_completo');
+        pool.close();
         
         const headerData = result.recordsets[0]?.[0] || null;
         const detailData = result.recordsets[1] || [];
@@ -777,6 +766,7 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                         ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
                     `;
                     const result = await request.query(query);
+                    currentPool.close();
                     return result.recordset.map(a => ({ ...a, CiudadDB: c }));
                 } catch (innerErr) {
                     console.error(`Error al obtener ajustes de inventario de ${c}:`, innerErr);
@@ -802,6 +792,7 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                 `;
                 request.input('ciudad', sql.Char(3), ciudad);
                 const result = await request.query(query);
+                pool.close();
                 ajustesResult = result.recordset;
             } catch (err) { 
                 console.error(`Error al obtener ajustes de inventario para la ciudad ${ciudad}:`, err);
@@ -830,6 +821,7 @@ app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
         request.input('p_id_ajuste', sql.VarChar(50), ajusteId); 
         
         const result = await request.execute('dbo.sp_ver_ajuste_completo_unido');
+        pool.close();
         
         const headerData = result.recordsets[0]?.[0] || null;
         const detailData = result.recordsets[1] || [];
@@ -863,6 +855,7 @@ app.get('/api/general/log', async (req, res) => {
                 currentPool = await getConnection(c);
                 const request = currentPool.request();
                 const result = await request.input('p_limit', sql.Int, 50).execute('dbo.sp_ver_log_general');
+                currentPool.close();
                 return result.recordset.map(t => ({ ...t, CiudadDB: c })); 
             } catch (innerErr) {
                 console.error(`Error al obtener transacciones de log de ${c}:`, innerErr);
