@@ -864,45 +864,51 @@ app.get('/api/inventario/ajustes', async (req, res) => {
 
 // Ruta para obtener el detalle de un ajuste de inventario por ID
 app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
-    const { ciudad } = req.query;
-    const { id: ajusteId } = req.params;
-    let pool;
-    try {
-        if (!ciudad) {
-            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle del ajuste.');
-        }
-        pool = await getConnection(ciudad);
-        const request = pool.request();
+  const { ciudad } = req.query;
+  const { id: ajusteId } = req.params;
+  let pool;
 
-        request.input('p_id_ajuste', sql.VarChar(50), ajusteId);
-        const result = await request.execute('dbo.sp_ver_ajuste_completo_unido');
-        pool.close();
-
-        const rows = result.recordsets[0] || [];
-
-        // Separar por tipo
-        const headerRow = rows.find(r => r.tipo === 'CABECERA') || null;
-        const detailRows = rows.filter(r => r.tipo === 'DETALLE');
-        const totalRow = rows.find(r => r.tipo === 'TOTALES') || null;
-
-        // Mapear detalle
-        const formattedDetails = detailRows.map(row => ({
-            id_Producto: row.columna1?.replace('Producto: ', '') ?? '',
-            pro_Descripcion: row.columna2,
-            aju_Cantidad: row.columna4?.replace('Cantidad: ', '') ?? '',
-            ESTADO_AJUD: row.columna8?.replace('Estado PxA: ', '') ?? ''
-        }));
-
-        res.json({
-            header: headerRow,
-            details: formattedDetails,
-            totals: totalRow // opcional si deseas usarlo
-        });
-    } catch (err) {
-        console.error('Error al obtener el detalle del ajuste:', err);
-        res.status(500).send('Error al obtener el detalle del ajuste.');
+  try {
+    if (!ciudad) {
+      return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle del ajuste.');
     }
+
+    pool = await getConnection(ciudad);
+    const request = pool.request();
+
+    request.input('p_id_ajuste', sql.VarChar(50), ajusteId);
+    const result = await request.execute('dbo.sp_ver_ajuste_completo_unido');
+    pool.close();
+
+    const rows = result.recordsets[0] || [];
+
+    // Separar por tipo
+    const headerRow = rows.find(r => r.tipo === 'CABECERA') || null;
+    const detailRows = rows.filter(r => r.tipo === 'DETALLE');
+    const totalRow = rows.find(r => r.tipo === 'TOTALES') || null;
+
+    // Mapear detalles
+    const formattedDetails = detailRows.map(row => ({
+      id_Producto: row.columna1?.replace('Producto: ', '') ?? '',
+      pro_Descripcion: row.columna2,
+      aju_Cantidad: row.columna4?.replace('Cantidad: ', '') ?? '',
+      ESTADO_AJUD: row.columna8?.replace('Estado PxA: ', '') ?? ''
+    }));
+
+    res.json({
+      header: headerRow,
+      details: formattedDetails,
+      totals: {
+        totalTexto: totalRow?.columna5 ?? null
+      }
+    });
+
+  } catch (err) {
+    console.error('Error al obtener el detalle del ajuste:', err);
+    res.status(500).send('Error al obtener el detalle del ajuste.');
+  }
 });
+
 
 // NUEVO ENDPOINT PARA LOG GENERAL
 app.get('/api/general/log', async (req, res) => {

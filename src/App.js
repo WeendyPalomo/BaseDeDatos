@@ -1070,7 +1070,7 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
 
     setLoading(true);
     setError(null);
-    // Llama al nuevo endpoint del backend para detalles de ajuste
+
     fetch(`http://localhost:3001/api/inventario/ajuste/detalle/${ajusteId}?ciudad=${ciudad}`)
       .then((res) => {
         if (!res.ok) {
@@ -1091,7 +1091,6 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
 
   if (!ajusteId || !ciudad) return null;
 
-  // Función para extraer el valor después del prefijo (ej. "Ajuste: A-0001" -> "A-0001")
   const extractValue = (fullString, prefix) => {
     if (fullString && fullString.startsWith(prefix)) {
       return fullString.substring(prefix.length).trim();
@@ -1109,7 +1108,7 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
         {error && <p className="error-message">{error}</p>}
 
         {ajusteDetails && (
-          <div className="ajuste-detail-container"> {/* Clase específica para ajustes */}
+          <div className="ajuste-detail-container">
             {ajusteDetails.header && (
               <div className="ajuste-header">
                 <h3>Información General del Ajuste</h3>
@@ -1150,11 +1149,11 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
               <p>No hay detalles de productos para este ajuste.</p>
             )}
 
-            {/* Mostrar totales si existen */}
-            {ajusteDetails.totals && (
+            {/* Mostrar totales */}
+            {ajusteDetails.totals && ajusteDetails.totals.totalTexto && (
               <div className="ajuste-totales" style={{ marginTop: '1rem' }}>
                 <h3>Totales</h3>
-                <p>{ajusteDetails.totals.columna6}</p>
+                <p><strong>{ajusteDetails.totals.totalTexto}</strong></p>
               </div>
             )}
           </div>
@@ -1163,7 +1162,6 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
     </div>
   );
 }
-
 // Componente para el módulo de Inventario (ahora mostrando Ajustes)
 function Inventario() {
   const [ajustes, setAjustes] = useState([]); // Cambiado de `inventario` a `ajustes`
