@@ -1,0 +1,132 @@
+/* Inicio.css */
+
+.inicio-container {
+  min-height: 100vh; /* Ocupa al menos el 100% de la altura de la ventana */
+  background-color: #f3f4f6; /* Fondo gris claro */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px 16px; /* Relleno superior/inferior y lateral */
+  font-family: "Inter", sans-serif; /* Fuente consistente con el resto de la app */
+  box-sizing: border-box; /* Incluye padding y borde en el ancho/alto total */
+}
+
+.welcome-section {
+  text-align: center;
+  margin-bottom: 48px; /* Margen inferior para separar de los módulos */
+  padding: 20px; /* Relleno para el texto */
+  border-radius: 12px; /* Bordes redondeados para la sección de bienvenida */
+  background-color: #ffffff; /* Fondo blanco para el recuadro de bienvenida */
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); /* Sombra suave */
+  width: 100%;
+  max-width: 800px; /* Ancho máximo para la sección */
+}
+
+.welcome-section h1 {
+  font-size: 3rem; /* Tamaño de fuente grande */
+  font-weight: 800; /* Extra-negrita */
+  color: #1a202c; /* Color de texto oscuro */
+  line-height: 1.25; /* Espaciado entre líneas */
+  margin-bottom: 16px; /* Margen inferior */
+  background: linear-gradient(to right, #61dafb, #4fa3d1); /* Degradado en el título */
+  -webkit-background-clip: text;
+  background-clip: text; /* Propiedad estándar para mayor compatibilidad */
+  -webkit-text-fill-color: transparent;
+  display: inline-block; /* Para que el degradado se aplique correctamente al texto */
+}
+
+.welcome-section p {
+  margin-top: 12px; /* Margen superior */
+  font-size: 1.25rem; /* Tamaño de fuente para la descripción */
+  color: #4a5568; /* Color de texto gris */
+}
+
+.modules-grid {
+  display: grid;
+  /* Configuración de cuadrícula responsiva: 1 columna en pantallas pequeñas, 2 en medianas, 3 en grandes */
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 32px; /* Espacio entre los módulos */
+  width: 100%;
+  max-width: 1024px; /* Ancho máximo de la cuadrícula de módulos */
+}
+
+.module-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px; /* Relleno interno de la tarjeta */
+  background-color: white;
+  border-radius: 12px; /* Bordes muy redondeados */
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.06); /* Sombra para darle profundidad */
+  border-bottom: 4px solid #4f46e5; /* Borde inferior de color índigo */
+  text-decoration: none; /* Quitar subrayado del enlace */
+  color: inherit; /* Heredar el color del texto por defecto */
+  transition: all 0.3s ease-in-out; /* Transición suave para efectos hover */
+}
+
+.module-card:hover {
+  box-shadow: 0 10px 15px rgba(0, 0, 0, 0.15), 0 4px 6px rgba(0, 0, 0, 0.1); /* Sombra más pronunciada al pasar el ratón */
+  transform: translateY(-4px) scale(1.02); /* Ligeramente más arriba y un poco más grande */
+}
+
+.module-icon {
+  color: #4f46e5; /* Color del icono */
+  margin-bottom: 16px; /* Margen inferior del icono */
+}
+
+.module-icon svg {
+    height: 64px; /* Tamaño del icono SVG */
+    width: 64px;
+}
+
+.module-title {
+  font-size: 2rem; /* Tamaño de fuente del título del módulo */
+  font-weight: 700; /* Negrita */
+  color: #2d3748; /* Color de texto oscuro */
+  margin-bottom: 8px; /* Margen inferior */
+}
+
+.module-description {
+  color: #718096; /* Color de texto gris para la descripción */
+  text-align: center;
+}
+
+/* Media Queries para responsividad */
+@media (max-width: 768px) {
+  .welcome-section h1 {
+    font-size: 2.5rem; /* Ajuste para pantallas más pequeñas */
+  }
+  .welcome-section p {
+    font-size: 1rem;
+  }
+  .modules-grid {
+    grid-template-columns: 1fr; /* Los módulos se apilan en una sola columna */
+    gap: 20px;
+  }
+  .module-card {
+    padding: 16px;
+  }
+  .module-icon svg {
+    height: 48px;
+    width: 48px;
+  }
+  .module-title {
+    font-size: 1.5rem;
+  }
+}
+
+@media (max-width: 480px) {
+    .welcome-section h1 {
+        font-size: 2rem;
+    }
+    .welcome-section p {
+        font-size: 0.9rem;
+    }
+    .module-title {
+        font-size: 1.25rem;
+    }
+    .module-description {
+        font-size: 0.85rem;
+    }
+}
