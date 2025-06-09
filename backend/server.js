@@ -631,111 +631,121 @@ app.get('/api/ventas', async (req, res) => {
 // NUEVOS ENDPOINTS PARA CONTABILIDAD
 
 // Ruta para listar asientos contables (resumen)
-app.get('/api/contabilidad/asientos', async (req, res) => {
-    const ciudad = req.query.ciudad || 'ALL'; // Valor por defecto 'ALL'
-    let pool;
-    try {
-        let asientosResult = [];
-        const allCities = Object.keys(configByCity);
 
-        if (ciudad === 'ALL') {
-            const promesasAsientos = allCities.map(async c => {
-                let currentPool;
-                try {
-                    currentPool = await getConnection(c);
-                    const request = currentPool.request();
-                    const query = `
-                        SELECT
-                            id_Asiento,
-                            asi_Fecha_Hora,
-                            asi_Descripcion,
-                            ESTADO_ASI
-                        FROM ASIENTOS
-                        ORDER BY asi_Fecha_Hora DESC, id_Asiento DESC;
-                    `;
-                    const result = await request.query(query);
-                    currentPool.close();
-                    return result.recordset.map(a => ({ ...a, CiudadDB: c }));
-                } catch (innerErr) {
-                    console.error(`Error al obtener asientos de ${c}:`, innerErr);
-                    return [];
-                }
-            });
-            asientosResult = (await Promise.all(promesasAsientos)).flat();
-        } else {
-            try {
-                pool = await getConnection(ciudad);
-                const request = pool.request();
-                const query = `
-                    SELECT
-                        id_Asiento,
-                        asi_Fecha_Hora,
-                        asi_Descripcion,
-                        ESTADO_ASI
-                    FROM ASIENTOS
-                    ORDER BY asi_Fecha_Hora DESC, id_Asiento DESC;
-                `;
-                const result = await request.query(query);
-                pool.close();
-                asientosResult = result.recordset;
-            } catch (err) { 
-                console.error(`Error al obtener asientos para la ciudad ${ciudad}:`, err);
-                return res.status(500).send(`Error al obtener asientos para la ciudad ${ciudad}`);
-            }
-        }
-        res.json(asientosResult);
-    } catch (err) {
-        console.error('Error general al obtener asientos contables:', err);
-        res.status(500).send('Error al obtener asientos contables');
+// Endpoint para listar asientos contables (resumen)
+app.get("/api/contabilidad/asientos", async (req, res) => {
+  const ciudad = req.query.ciudad || "ALL";
+  try {
+    let asientosResult = [];
+    const allCities = Object.keys(configByCity);
+
+    if (ciudad === "ALL") {
+      // Obtener asientos de todas las ciudades
+const promesasAsientos = allCities.map(async c => {
+    console.log(`Consultando ciudad: ${c}`);
+    let currentPool;
+    try {
+        currentPool = await getConnection(c);
+        const request = currentPool.request();
+        const query = `
+            SELECT
+                id_Asiento,
+                asi_FechaHora,
+                asi_Descripcion,
+                ESTADO_ASI
+            FROM ASIENTOS
+            ORDER BY asi_FechaHora DESC, id_Asiento DESC;
+        `;
+        const result = await request.query(query);
+        currentPool.close();
+        console.log(`Ciudad ${c} tiene ${result.recordset.length} asientos`);
+        return result.recordset.map(a => ({ ...a, CiudadDB: c }));
+    } catch (innerErr) {
+        console.error(`Error al obtener asientos de ${c}:`, innerErr);
+        return [];
     }
 });
+console.log("Ciudades configuradas:", allCities);
 
-// Ruta para obtener el detalle de un asiento contable por ID
-app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
-    const { ciudad } = req.query; 
-    const { id: asientoId } = req.params; 
-    let pool;
-    try {
-        if (!ciudad) {
-            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle del asiento.');
-        }
+
+      asientosResult = (await Promise.all(promesasAsientos)).flat();
+    } else {
+      // Obtener asientos solo de la ciudad seleccionada
+      let pool;
+      try {
         pool = await getConnection(ciudad);
         const request = pool.request();
-
-        request.input('p_id_Asiento', sql.VarChar(7), asientoId); 
-
-        const result = await request.execute('dbo.sp_ver_asiento_completo');
+        const query = `
+          SELECT
+            id_Asiento,
+            asi_FechaHora,
+            asi_Descripcion,
+            ESTADO_ASI
+          FROM ASIENTOS
+          ORDER BY asi_FechaHora DESC, id_Asiento DESC;
+        `;
+        const result = await request.query(query);
         pool.close();
-        
-        const headerData = result.recordsets[0]?.[0] || null;
-        const detailData = result.recordsets[1] || [];
-
-        const formattedDetails = detailData.map(item => ({
-            id_cuenta: item.id_Cuenta, 
-            cue_nombre: item.cue_Nombre, 
-            det_Debito: item.det_Debito, 
-            det_Credito: item.det_Credito, 
-            det_Descripcion: item.det_Descripcion, 
-            ESTADO_DET: item.ESTADO_DET, 
-        }));
-
-        const formattedResponse = {
-            header: headerData ? {
-                id_Asiento: headerData.id_Asiento, 
-                asi_Fecha_Hora: headerData.asi_Fecha_Hora, 
-                asi_Descripcion: headerData.asi_Descripcion, 
-                asi_total_debe: headerData.asi_total_debe, 
-                asi_total_haber: headerData.asi_total_haber, 
-                ESTADO_ASI: headerData.ESTADO_ASI, 
-            } : null,
-            details: formattedDetails,
-        };
-
-        res.json(formattedResponse);
-    } catch (err) {
-        console.error('Error al obtener el detalle del asiento contable:', err);
-        res.status(500).send('Error al obtener el detalle del asiento contable.');
+        asientosResult = result.recordset;
+      } catch (err) {
+        console.error(`Error al obtener asientos para la ciudad ${ciudad}:`, err);
+        return res
+          .status(500)
+          .send(`Error al obtener asientos para la ciudad ${ciudad}`);
+      }
     }
+
+    res.json(asientosResult);
+  } catch (err) {
+    console.error("Error general al obtener asientos contables:", err);
+    res.status(500).send("Error al obtener asientos contables");
+  }
+});
+// Ruta para obtener el detalle del asiento contable
+app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
+  const { ciudad } = req.query;
+  const { id: asientoId } = req.params;
+
+  if (!ciudad) {
+    return res.status(400).send('Se requiere el parámetro "ciudad".');
+  }
+
+  try {
+    const pool = await getConnection(ciudad);
+    const request = pool.request();
+    request.input('p_id_Asiento', sql.VarChar(50), asientoId);
+
+    const result = await request.execute('dbo.sp_ver_asiento_completo');
+    const rows = result.recordset || [];
+
+    const headerRow = rows.find(r => r.tipo === 'CABECERA');
+    const detailRows = rows.filter(r => r.tipo === 'PARTIDA');
+
+    const formattedResponse = {
+      header: headerRow ? {
+        id_Asiento: headerRow.columna1,
+        asi_Descripcion: headerRow.columna2,
+        asi_total_debe: parseFloat((headerRow.columna3 || '0').replace(',', '')),
+        asi_total_haber: parseFloat((headerRow.columna4 || '0').replace(',', '')),
+        asi_FechaHora: headerRow.columna5,
+        user_id: headerRow.columna6,
+        ESTADO_ASI: headerRow.columna7
+      } : null,
+      details: detailRows.map(r => ({
+        id_asiento: r.columna1,
+        id_cuenta: r.columna2,
+        cue_nombre: r.columna3,
+        det_Debito: parseFloat((r.columna4 || '0').replace(',', '')),
+        det_Credito: parseFloat((r.columna5 || '0').replace(',', '')),
+        ESTADO_DET: r.columna7
+      }))
+    };
+
+    res.json(formattedResponse);
+  } catch (err) {
+    console.error('Error al obtener el detalle del asiento:', err);
+    res.status(500).send('Error al obtener el detalle del asiento.');
+  }
 });
 
 // NUEVOS ENDPOINTS PARA INVENTARIO (AHORA PARA AJUSTES)

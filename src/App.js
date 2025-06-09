@@ -871,26 +871,20 @@ function Ventas() {
   );
 }
 
-// NUEVO COMPONENTE: Ventana Modal para Detalle de Asiento Contable
 function AsientoDetailModal({ asientoId, onClose, ciudad }) {
   const [asientoDetails, setAsientoDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!asientoId || !ciudad) {
-      setAsientoDetails(null);
-      setLoading(false);
-      return;
-    }
+    if (!asientoId || !ciudad) return;
 
     setLoading(true);
     setError(null);
+
     fetch(`http://localhost:3001/api/contabilidad/asiento/detalle/${asientoId}?ciudad=${ciudad}`)
       .then((res) => {
-        if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
-        }
+        if (!res.ok) throw new Error(`Error: ${res.status}`);
         return res.json();
       })
       .then((data) => {
@@ -898,67 +892,56 @@ function AsientoDetailModal({ asientoId, onClose, ciudad }) {
         setLoading(false);
       })
       .catch((err) => {
-        console.error("Error al obtener detalles del asiento contable:", err);
-        setError("Error al cargar los detalles del asiento contable.");
+        console.error(err);
+        setError("Error al cargar el detalle.");
         setLoading(false);
       });
   }, [asientoId, ciudad]);
 
-  if (!asientoId || !ciudad) return null;
-
   return (
     <div className="modal-overlay">
       <div className="modal-content">
-        <button className="modal-close-button" onClick={onClose}>&times;</button>
-        <h2>Detalle de Asiento Contable: {asientoId}</h2>
+        <button onClick={onClose}>×</button>
+        <h2>Detalle del Asiento {asientoId}</h2>
 
-        {loading && <p>Cargando detalles...</p>}
-        {error && <p className="error-message">{error}</p>}
+        {loading && <p>Cargando...</p>}
+        {error && <p>{error}</p>}
 
-        {asientoDetails && (
-          <div className="asiento-detail-container">
-            {asientoDetails.header && (
-              <div className="asiento-header">
-                <h3>Información General del Asiento</h3>
-                <p><strong>ID Asiento:</strong> {asientoDetails.header.id_Asiento}</p>
-                <p><strong>Fecha/Hora:</strong> {asientoDetails.header.asi_Fecha_Hora ? new Date(asientoDetails.header.asi_Fecha_Hora).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</p>
-                <p><strong>Descripción:</strong> {asientoDetails.header.asi_Descripcion}</p>
-                <p><strong>Total Débito:</strong> ${asientoDetails.header.asi_total_debe ? asientoDetails.header.asi_total_debe.toFixed(2) : '0.00'}</p>
-                <p><strong>Total Crédito:</strong> ${asientoDetails.header.asi_total_haber ? asientoDetails.header.asi_total_haber.toFixed(2) : '0.00'})</p>
-                <p><strong>Estado:</strong> {asientoDetails.header.ESTADO_ASI}</p>
-              </div>
-            )}
+        {asientoDetails?.header && (
+          <div>
+            <p><strong>Descripción:</strong> {asientoDetails.header.asi_Descripcion}</p>
+            <p><strong>Fecha:</strong> {asientoDetails.header.asi_FechaHora}</p>
 
-            {asientoDetails.details && asientoDetails.details.length > 0 && (
-              <div className="asiento-details">
-                <h3>Detalle de Partidas</h3>
-                <table className="detail-table">
-                  <thead>
-                    <tr>
-                      <th>ID Cuenta</th>
-                      <th>Cuenta</th>
-                      <th>Descripción</th>
-                      <th>Débito</th>
-                      <th>Crédito</th>
-                      <th>Estado</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {asientoDetails.details.map((item, index) => (
-                      <tr key={item.id_cuenta || index}>
-                        <td>{item.id_cuenta}</td>
-                        <td>{item.cue_nombre}</td>
-                        <td>{item.det_Descripcion}</td>
-                        <td>${item.det_Debito ? item.det_Debito.toFixed(2) : '0.00'}</td>
-                        <td>${item.det_Credito ? item.det_Credito.toFixed(2) : '0.00'}</td>
-                        <td>{item.ESTADO_DET}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
+            <p><strong>Total Débito:</strong> ${Number(asientoDetails.header.asi_total_debe || 0).toFixed(2)}</p>
+            <p><strong>Total Crédito:</strong> ${Number(asientoDetails.header.asi_total_haber || 0).toFixed(2)}</p>
+
+            <p><strong>Estado:</strong> {asientoDetails.header.ESTADO_ASI}</p>
           </div>
+        )}
+
+        {asientoDetails?.details?.length > 0 && (
+          <table border="1" cellPadding="6" style={{ marginTop: '1rem' }}>
+            <thead>
+              <tr>
+                <th>ID Cuenta</th>
+                <th>Nombre Cuenta</th>
+                <th>Débito</th>
+                <th>Crédito</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody>
+              {asientoDetails.details.map((d, i) => (
+                <tr key={i}>
+                  <td>{d.id_cuenta}</td>
+                  <td>{d.cue_nombre}</td>
+                  <td>${Number(d.det_Debito || 0).toFixed(2)}</td>
+                  <td>${Number(d.det_Credito || 0).toFixed(2)}</td>
+                  <td>{d.ESTADO_DET}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>
@@ -977,9 +960,16 @@ function Contabilidad() {
   useEffect(() => {
     const queryParam = selectedCity !== "ALL" ? `?ciudad=${selectedCity}` : "";
     fetch(`http://localhost:3001/api/contabilidad/asientos${queryParam}`)
-      .then((res) => res.json())
+      .then((res) => {
+        if (!res.ok) {
+          throw new Error(`Error en la respuesta del servidor: ${res.status}`);
+        }
+        return res.json();
+      })
       .then((data) => setAsientos(data))
-      .catch((err) => console.error("Error al obtener asientos contables:", err));
+      .catch((err) =>
+        console.error("Error al obtener asientos contables:", err)
+      );
   }, [selectedCity]);
 
   const handleViewDetail = (id, ciudadDb) => {
@@ -998,6 +988,7 @@ function Contabilidad() {
     <div style={{ padding: "2rem" }}>
       <h1>Contabilidad (Asientos Contables)</h1>
       <CitySelect selectedCity={selectedCity} onCityChange={setSelectedCity} />
+
       <table border="1" cellPadding="10" style={{ marginTop: "1rem" }}>
         <thead>
           <tr>
@@ -1014,20 +1005,37 @@ function Contabilidad() {
             asientos.map((a) => (
               <tr key={a.id_Asiento}>
                 <td>
-                  <button onClick={() => handleViewDetail(a.id_Asiento, a.CiudadDB || selectedCity)} className="view-detail-button">
+                  <button
+                    onClick={() =>
+                      handleViewDetail(a.id_Asiento, a.CiudadDB || selectedCity)
+                    }
+                    className="view-detail-button"
+                  >
                     Ver Detalle
                   </button>
                 </td>
                 <td>{a.id_Asiento}</td>
-                <td>{a.asi_Fecha_Hora ? new Date(a.asi_Fecha_Hora).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
-                <td>{a.asi_Descripcion || 'N/A'}</td>
-                <td>{a.ESTADO_ASI || 'N/A'}</td>
-                <td>{a.CiudadDB || 'N/A'}</td>
+                <td>
+                  {a.asi_FechaHora
+                    ? new Date(a.asi_FechaHora).toLocaleDateString("es-ES", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "N/A"}
+                </td>
+                <td>{a.asi_Descripcion || "N/A"}</td>
+                <td>{a.ESTADO_ASI || "N/A"}</td>
+                <td>{a.CiudadDB || "N/A"}</td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan="6">No hay asientos contables disponibles para la ciudad seleccionada.</td>
+              <td colSpan="6">
+                No hay asientos contables disponibles para la ciudad seleccionada.
+              </td>
             </tr>
           )}
         </tbody>
