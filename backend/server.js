@@ -118,10 +118,10 @@ app.get('/api/facturas', async (req, res) => {
         if (ciudad === 'ALL') {
             const ciudadesDisponibles = Object.keys(configByCity);
             const promesasFacturas = ciudadesDisponibles.map(async c => {
-                let pool;
+                let currentPool;
                 try {
-                    pool = await getConnection(c);
-                    const request = pool.request();
+                    currentPool = await getConnection(c);
+                    const request = currentPool.request();
                     // Usar un query directo para mayor control del filtro id_Ciudad si el SP no lo maneja
                     const query = `
                         SELECT
@@ -141,7 +141,7 @@ app.get('/api/facturas', async (req, res) => {
                         ORDER BY F.fac_Fecha_Hora DESC;
                     `;
                     const result = await request.query(query);
-                    pool.close();
+                    currentPool.close();
                     // Añadir el nombre de la base de datos en lugar del código de ciudad
                     return result.recordset.map(f => ({ ...f, CiudadDB: configByCity[c].database }));
                 } catch (innerErr) {
@@ -170,7 +170,7 @@ app.get('/api/facturas', async (req, res) => {
                     FROM FACTURAS F
                     INNER JOIN CLIENTES C ON F.id_Cliente = C.id_Cliente
                     INNER JOIN CIUDADES CIU ON C.id_Ciudad = CIU.id_Ciudad
-                    WHERE F.id_Ciudad = @ciudad -- Filtrando por la ciudad de la factura
+                    WHERE CIU.id_Ciudad = @ciudad -- CORRECCIÓN: Usar CIU.id_Ciudad en lugar de F.id_Ciudad
                     ORDER BY F.fac_Fecha_Hora DESC;
                 `;
                 request.input('ciudad', sql.Char(3), ciudad);
@@ -197,52 +197,24 @@ app.get('/api/facturas/detalle/:id', async (req, res) => {
     const { id } = req.params;
     const ciudades = Object.keys(configByCity);
 
-    if (ciudad && ciudad !== "ALL") {
-        try {
-            const pool = await getConnection(ciudad);
-            const result = await pool.request()
-                .input('p_id_factura', sql.Char(15), id)
-                .execute('dbo.sp_ver_factura_completa');
-
-            const headerData = result.recordsets[0]?.[0] || null;
-            const detailData = result.recordsets[1] || [];
-            const totalsData = result.recordsets[2]?.[0] || null;
-
-            const formattedDetails = detailData.map(item => ({
-                id_producto: item.columna1,
-                descripcion_producto: item.columna2,
-                unidad_medida: item.columna3,
-                cantidad: item.columna4,
-                precio_unitario: item.columna5,
-                subtotal_producto: item.columna6,
-                estado_detalle: item.columna7,
-            }));
-
-            return res.json({
-                header: headerData ? {
-                    id_factura: headerData.columna1,
-                    fecha_hora: headerData.columna2,
-                    cliente_nombre: headerData.columna3,
-                    cliente_ruc_ced: headerData.columna4,
-                    cliente_mail: headerData.columna5,
-                    descripcion_factura: headerData.columna6,
-                    estado_factura: headerData.columna7,
-                } : null,
-                details: formattedDetails,
-                totals_summary: totalsData?.columna6 || null,
-            });
-        } catch (err) {
-            console.error(`Error al obtener detalle en ciudad ${ciudad}:`, err);
-            return res.status(500).send('Error al obtener el detalle de la factura.');
-        }
+    // Si se especifica una ciudad Y es válida en configByCity, intentar solo en esa.
+    // De lo contrario (ciudad 'ALL', no especificada, o no válida), iterar por todas.
+    let citiesToSearch = [];
+    if (ciudad && ciudad !== "ALL" && configByCity[ciudad]) {
+        citiesToSearch = [ciudad];
+    } else {
+        citiesToSearch = ciudades;
     }
 
-    for (const ciudadDb of ciudades) {
+    for (const cityCode of citiesToSearch) {
         try {
-            const pool = await getConnection(ciudadDb);
-            const result = await pool.request()
-                .input('p_id_factura', sql.Char(15), id)
-                .execute('dbo.sp_ver_factura_completa');
+            const pool = await getConnection(cityCode);
+            const request = pool.request()
+                .input('p_id_factura', sql.Char(15), id);
+            
+            const result = await request.execute('dbo.sp_ver_factura_completa');
+            
+            pool.close(); // Cerrar el pool después de usarlo
 
             const headerData = result.recordsets[0]?.[0];
             if (headerData) {
@@ -274,11 +246,11 @@ app.get('/api/facturas/detalle/:id', async (req, res) => {
                 });
             }
         } catch (err) {
-            console.warn(`Factura no encontrada o error en ${ciudadDb}:`, err.message);
+            console.warn(`Factura ${id} no encontrada o error en ${cityCode}: ${err.message}`);
         }
     }
 
-    return res.status(404).send('Factura no encontrada en ninguna ciudad.');
+    return res.status(404).send(`Factura con ID ${id} no encontrada en ninguna de las bases de datos configuradas.`);
 });
 
 // Empleados (por ciudad o todas)
@@ -389,7 +361,7 @@ app.get('/api/compras', async (req, res) => {
                     return result.recordset.map(item => ({
                         ...item,
                         CiudadDB: configByCity[c].database,
-                        id_Ciudad: c // <-- Agregando id_Ciudad aquí
+                        id_Ciudad: c // <-- Agregando id_Ciudad aquí para que el frontend lo use
                     }));
                 } catch (innerErr) {
                     console.error(`Error al obtener compras de ${c}:`, innerErr);
@@ -420,7 +392,7 @@ app.get('/api/compras', async (req, res) => {
                 comprasResult = result.recordset.map(item => ({
                     ...item,
                     CiudadDB: configByCity[ciudad].database,
-                    id_Ciudad: ciudad // <-- Agregando id_Ciudad aquí
+                    id_Ciudad: ciudad // <-- Agregando id_Ciudad aquí para que el frontend lo use
                 }));
             } catch (err) {
                 console.error(`Error al obtener compras para la ciudad ${ciudad}:`, err);
@@ -445,6 +417,12 @@ app.get('/api/compras/detalle/:id', async (req, res) => {
         if (!ciudad) {
             return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle de la orden de compra.');
         }
+        // Validar si la ciudad es una clave válida en configByCity
+        if (!configByCity[ciudad]) {
+            console.error(`Error: Ciudad no válida para conexión en el detalle de compra: ${ciudad}`);
+            return res.status(400).send(`Ciudad no válida para la compra: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
+        }
+
         pool = await getConnection(ciudad);
         const request = pool.request();
 
@@ -529,6 +507,12 @@ app.get('/api/empleados/payroll/:id', async (req, res) => {
         if (!ciudad) {
             return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el rol de pago.');
         }
+        // Validar si la ciudad es una clave válida en configByCity
+        if (!configByCity[ciudad]) {
+            console.error(`Error: Ciudad no válida para conexión en el rol de pago: ${ciudad}`);
+            return res.status(400).send(`Ciudad no válida para el rol de pago: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
+        }
+
         pool = await getConnection(ciudad);
 
         let idPago = null;
@@ -605,7 +589,7 @@ app.get('/api/ventas', async (req, res) => {
                       P.pro_Descripcion,
                       PF.pxf_Cantidad,
                       PF.pxf_Valor,
-                      F.id_Ciudad AS FacturaCiudad -- Asegúrate de que esta columna esté en FACTURAS
+                      CIU.id_Ciudad AS FacturaCiudadId -- Cambiado de F.id_Ciudad a CIU.id_Ciudad
                   FROM FACTURAS F
                   INNER JOIN CLIENTES C ON F.id_Cliente = C.id_Cliente
                   INNER JOIN CIUDADES CIU ON C.id_Ciudad = CIU.id_Ciudad
@@ -615,8 +599,13 @@ app.get('/api/ventas', async (req, res) => {
                 `;
                 const result = await request.query(query);
                 currentPool.close();
-                // Añadir el nombre de la base de datos
-                return result.recordset.map(item => ({ ...item, CiudadDB: configByCity[c].database }));
+                // Añadir el nombre de la base de datos Y el id_Ciudad (c)
+                // Ahora, la propiedad 'id_Ciudad' se mapea directamente desde el alias 'FacturaCiudadId'
+                return result.recordset.map(item => ({
+                    ...item,
+                    CiudadDB: configByCity[c].database,
+                    id_Ciudad: item.FacturaCiudadId // Usar el alias de la columna CIU.id_Ciudad
+                }));
             } catch (innerErr) {
                 console.error(`Error al obtener ventas de ${c}:`, innerErr);
                 return [];
@@ -642,20 +631,25 @@ app.get('/api/ventas', async (req, res) => {
                   P.pro_Descripcion,
                   PF.pxf_Cantidad,
                   PF.pxf_Valor,
-                  F.id_Ciudad AS FacturaCiudad -- Asegúrate de que esta columna esté en FACTURAS
+                  CIU.id_Ciudad AS FacturaCiudadId -- Cambiado de F.id_Ciudad a CIU.id_Ciudad
               FROM FACTURAS F
               INNER JOIN CLIENTES C ON F.id_Cliente = C.id_Cliente
               INNER JOIN CIUDADES CIU ON C.id_Ciudad = CIU.id_Ciudad
               INNER JOIN PROXFAC PF ON F.id_Factura = PF.id_Factura
               INNER JOIN PRODUCTOS P ON PF.id_Producto = P.id_Producto
-              WHERE F.id_Ciudad = @ciudad -- AGREGADO: Filtrar por la ciudad de la factura
+              WHERE CIU.id_Ciudad = @ciudad -- CORRECCIÓN: Usar CIU.id_Ciudad en lugar de F.id_Ciudad
               ORDER BY F.fac_Fecha_Hora DESC, F.id_Factura, P.pro_Descripcion;
             `;
             request.input('ciudad', sql.Char(3), ciudad);
             const result = await request.query(query);
             pool.close();
-            // Añadir el nombre de la base de datos
-            ventasResult = result.recordset.map(item => ({ ...item, CiudadDB: configByCity[ciudad].database }));
+            // Añadir el nombre de la base de datos Y el id_Ciudad (ciudad)
+            // Ahora, la propiedad 'id_Ciudad' se mapea directamente desde el alias 'FacturaCiudadId'
+            ventasResult = result.recordset.map(item => ({
+                ...item,
+                CiudadDB: configByCity[ciudad].database,
+                id_Ciudad: item.FacturaCiudadId // Usar el alias de la columna CIU.id_Ciudad
+            }));
         } catch (err) {
             console.error(`Error al obtener ventas para la ciudad ${ciudad}:`, err);
             return res.status(500).send(`Error al obtener ventas para la ciudad ${ciudad}`);
@@ -748,6 +742,11 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
 
   if (!ciudad) {
     return res.status(400).send('Se requiere el parámetro "ciudad".');
+  }
+  // Validar si la ciudad es una clave válida en configByCity
+  if (!configByCity[ciudad]) {
+      console.error(`Error: Ciudad no válida para conexión en el detalle del asiento: ${ciudad}`);
+      return res.status(400).send(`Ciudad no válida para el asiento: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
   }
 
   try {
@@ -868,6 +867,12 @@ app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
         if (!ciudad) {
             return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle del ajuste.');
         }
+        // Validar si la ciudad es una clave válida en configByCity
+        if (!configByCity[ciudad]) {
+            console.error(`Error: Ciudad no válida para conexión en el detalle del ajuste: ${ciudad}`);
+            return res.status(400).send(`Ciudad no válida para el ajuste: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
+        }
+
         pool = await getConnection(ciudad);
         const request = pool.request();
 

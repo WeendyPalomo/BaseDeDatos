@@ -671,28 +671,31 @@ function Compras() {
 }
 
 // NUEVO COMPONENTE: Ventana Modal para Detalle de Factura de Ventas
-// Reutiliza la misma estructura y lógica de FacturaDetailModal, pero separamos el componente
-// para claridad y si en el futuro se requieren diferencias.
+// Se alinea la lógica de carga y manejo de 'ciudad' con PurchaseOrderDetailModal
 function VentasDetailModal({ facturaId, onClose, ciudad }) {
   const [facturaDetails, setFacturaDetails] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    if (!facturaId) return;
+    // Asegurarse de que tanto facturaId como ciudad estén presentes antes de hacer la llamada
+    if (!facturaId || !ciudad) {
+      setFacturaDetails(null);
+      setLoading(false);
+      return;
+    }
 
     setLoading(true);
     setError(null);
 
-    // Construir la URL condicionalmente
-    const url = ciudad && ciudad !== "ALL"
-      ? `http://localhost:3001/api/facturas/detalle/${facturaId}?ciudad=${ciudad}`
-      : `http://localhost:3001/api/facturas/detalle/${facturaId}`;
-
-    fetch(url)
+    // Construir la URL para el detalle de la factura, siempre pasando la ciudad
+    fetch(`http://localhost:3001/api/facturas/detalle/${facturaId}?ciudad=${ciudad}`)
       .then((res) => {
         if (!res.ok) {
-          throw new Error(`HTTP error! status: ${res.status}`);
+          // Mejorar el manejo de errores para depuración
+          return res.text().then(text => {
+            throw new Error(`HTTP error! status: ${res.status}, body: ${text}`);
+          });
         }
         return res.json();
       })
@@ -702,12 +705,12 @@ function VentasDetailModal({ facturaId, onClose, ciudad }) {
       })
       .catch((err) => {
         console.error("Error al obtener detalles de la factura de ventas:", err);
-        setError("Error al cargar los detalles de la factura de ventas.");
+        setError(`Error al cargar los detalles de la factura de ventas: ${err.message}`);
         setLoading(false);
       });
-  }, [facturaId, ciudad]);
+  }, [facturaId, ciudad]); // Dependencia de ambos para re-ejecutar si cambian
 
-  if (!facturaId) return null;
+  if (!facturaId || !ciudad) return null; // Salir si no hay ID o ciudad
 
   return (
     <div className="modal-overlay">
@@ -799,6 +802,7 @@ function Ventas() {
   // Manejador para el botón "Ver Detalle" en Ventas
   const handleViewDetail = (id, ciudadDb) => {
     setCurrentFacturaId(id);
+    // ¡IMPORTANTE! Aquí se pasa el id_Ciudad (QUI, GYE, etc.) que ahora viene del backend.
     setCurrentFacturaCiudad(ciudadDb);
     setShowDetailModal(true);
   };
@@ -838,12 +842,14 @@ function Ventas() {
             ventas.map((v, index) => (
               <tr key={v.id_Factura || index}> {/* Usar id_Factura como key si está disponible */}
                 <td>
-                  <button onClick={() => handleViewDetail(v.id_Factura, v.CiudadDB || selectedCity)} className="view-detail-button">
+                  {/* Pasa el id_Ciudad de la factura (e.g., "QUI") al handler */}
+                  <button onClick={() => handleViewDetail(v.id_Factura, v.id_Ciudad || selectedCity)} className="view-detail-button">
                     Ver Detalle
                   </button>
                 </td>
                 <td>{v.id_Factura}</td>
                 <td>{v.fac_Fecha_Hora ? new Date(v.fac_Fecha_Hora).toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' }) : 'N/A'}</td>
+                <td>{v.fac_Descripcion || 'N/A'}</td>
                 <td>${v.fac_Subtotal ? v.fac_Subtotal.toFixed(2) : '0.00'}</td>
                 <td>${v.fac_IVA ? v.fac_IVA.toFixed(2) : '0.00'}</td>
                 <td>${v.fac_Total ? v.fac_Total.toFixed(2) : '0.00'}</td> {/* Asumo fac_Total del backend */}
@@ -1095,7 +1101,7 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
   if (!ajusteId || !ciudad) return null;
 
   const extractValue = (fullString, prefix) => {
-    if (fullString && fullString.startsWith(prefix)) {
+    if (fullString && typeof fullString === 'string' && fullString.startsWith(prefix)) {
       return fullString.substring(prefix.length).trim();
     }
     return fullString;
