@@ -3,7 +3,7 @@ import React, { useEffect, useState } from "react";
 import { BrowserRouter as Router, Route, Routes, Link, useLocation } from "react-router-dom";
 import "./App.css"; // Asegúrate de que esta ruta sea correcta
 import Inicio from './Inicio'; // Importa el componente Inicio
-import GeneralLog from './GeneralLog'; // Importa el componente GeneralLog (¡DESCOMENTADO Y REINTEGRADO!)
+import GeneralLog from './GeneralLog'; // Importa el componente GeneralLog
 
 // --- Componentes funcionales ---
 
@@ -232,27 +232,28 @@ function Facturas() {
 
 // Componente para la ventana modal de detalles de rol de pago de empleado
 function EmployeePayrollModal({ employeeId, onClose, ciudad }) {
-  // Cambiamos el nombre de estado de 'payrollDetails' a 'rolData' para reflejar el formato plano
   const [rolData, setRolData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [selectedYear, setSelectedYear] = useState('ALL');
-  const [selectedMonth, setSelectedMonth] = useState('ALL');
+  // Se eliminan los estados de año y mes, ya que se pidió quitar los filtros
+  // const [selectedYear, setSelectedYear] = useState('ALL');
+  // const [selectedMonth, setSelectedMonth] = useState('ALL');
 
-  const currentYear = new Date().getFullYear();
-  const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
-  const months = [
-    { value: '01', label: 'Enero' }, { value: '02', label: 'Febrero' },
-    { value: '03', label: 'Marzo' }, { value: '04', label: 'Abril' },
-    { value: '05', label: 'Mayo' }, { value: '06', label: 'Junio' },
-    { value: '07', label: 'Julio' }, { value: '08', label: 'Agosto' },
-    { value: '09', label: 'Septiembre' }, { value: '10', label: 'Octubre' },
-    { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' },
-  ];
+  // Se eliminan las constantes y arrays relacionados con los filtros de año y mes
+  // const currentYear = new Date().getFullYear();
+  // const years = Array.from({ length: 5 }, (_, i) => currentYear - i);
+  // const months = [
+  //   { value: '01', label: 'Enero' }, { value: '02', label: 'Febrero' },
+  //   { value: '03', label: 'Marzo' }, { value: '04', label: 'Abril' },
+  //   { value: '05', label: 'Mayo' }, { value: '06', label: 'Junio' },
+  //   { value: '07', label: 'Julio' }, { value: '08', label: 'Agosto' },
+  //   { value: '09', label: 'Septiembre' }, { value: '10', label: 'Octubre' },
+  //   { value: '11', label: 'Noviembre' }, { value: '12', label: 'Diciembre' },
+  // ];
 
   useEffect(() => {
     if (!employeeId || !ciudad) {
-      setRolData(null); // Usar setRolData
+      setRolData(null);
       setLoading(false);
       return;
     }
@@ -261,14 +262,6 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) {
     setError(null);
 
     const queryParams = new URLSearchParams();
-    // Los filtros de año y mes no se usan en el backend actual para fn_visualizar_rol,
-    // pero se mantienen aquí en el frontend por si se desean implementar en el futuro.
-    // if (selectedYear !== 'ALL') {
-    //   queryParams.append('year', selectedYear);
-    // }
-    // if (selectedMonth !== 'ALL') {
-    //   queryParams.append('month', selectedMonth);
-    // }
     queryParams.append('ciudad', ciudad); // Añadir la ciudad a los query params
 
     fetch(`http://localhost:3001/api/empleados/payroll/${employeeId}?${queryParams.toString()}`)
@@ -279,26 +272,28 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) {
         return res.json();
       })
       .then((data) => {
-        // Ahora, 'data' es directamente el array plano del recordset de fn_visualizar_rol
-        setRolData(data); // Usar setRolData
+        setRolData(data);
         setLoading(false);
       })
       .catch((err) => {
         console.error("Error al obtener detalles de rol de pago:", err);
         setError("Error al cargar los detalles del rol de pago.");
-        setRolData(null); // Usar setRolData
+        setRolData(null);
         setLoading(false);
       });
-  }, [employeeId, ciudad]); // Eliminados selectedYear, selectedMonth de las dependencias, ya que no afectan la API
+  }, [employeeId, ciudad]); // Eliminados selectedYear, selectedMonth de las dependencias
 
   if (!employeeId || !ciudad) return null;
 
   return (
     <div className="modal-overlay">
-      <div className="modal-content">
+      {/* Ajustes de estilo para el modal-content: hacerlo más ancho y alto */}
+      <div className="modal-content" style={{ maxWidth: '90vw', maxHeight: '90vh', width: 'auto' }}>
         <button className="modal-close-button" onClick={onClose}>&times;</button>
-        <h2>Rol de Pago para Empleado: {employeeId} (Base de Datos: {ciudad})</h2> {/* Título cambiado */}
+        <h2>Rol de Pago para Empleado: {employeeId} (Base de Datos: {ciudad})</h2>
 
+        {/* Se elimina el div de filtros de año y mes */}
+        {/*
         <div className="payroll-filters">
           <label htmlFor="year-select">Año:</label>
           <select id="year-select" value={selectedYear} onChange={(e) => setSelectedYear(e.target.value)}>
@@ -316,51 +311,41 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) {
             ))}
           </select>
         </div>
+        */}
 
         {loading && <p>Cargando rol de pago...</p>}
         {error && <p className="error-message">{error}</p>}
 
-        {/* Ahora renderizamos una tabla plana directamente de rolData */}
         {rolData && rolData.length > 0 ? (
-          <div className="payroll-detail-container">
+          <div className="payroll-detail-container" style={{ overflowX: 'auto' }}> {/* Añadir overflow-x para tablas anchas */}
             <h3>Detalle de Rol de Pago</h3>
             <table className="detail-table">
               <thead>
                 <tr>
-                  {/* Genera los encabezados de la tabla dinámicamente de las claves del primer objeto */}
                   {Object.keys(rolData[0]).map(col => (
-                    <th key={col}>{col}</th>
+                    <th key={col} style={{ textTransform: 'capitalize', whiteSpace: 'nowrap' }}> {/* whiteSpace:nowrap para evitar saltos de línea */}
+                      {col.replace(/_/g, ' ')}
+                    </th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {/* Mapea cada fila de los datos */}
                 {rolData.map((row, rowIndex) => (
                   <tr key={rowIndex}>
-                    {/* Mapea cada valor de la fila */}
-                    {Object.values(row).map((val, colIndex) => (
+                    {Object.entries(row).map(([key, val], colIndex) => (
                       <td key={`${rowIndex}-${colIndex}`}>
-                        {(typeof val === 'number' && (
-                            // Intenta detectar si es un valor monetario
-                            (Object.keys(row)[colIndex].toLowerCase().includes('valor') ||
-                             Object.keys(row)[colIndex].toLowerCase().includes('sueldo') ||
-                             Object.keys(row)[colIndex].toLowerCase().includes('bonificacion') ||
-                             Object.keys(row)[colIndex].toLowerCase().includes('descuento') ||
-                             Object.keys(row)[colIndex].toLowerCase().includes('neto'))
-                            ? `$${val.toFixed(2)}`
-                            : val
-                          )) ||
-                          (typeof val === 'string'
-                            ? (() => {
-                                const dateVal = new Date(val);
-                                // Verifica si la cadena es una fecha ISO válida que se puede convertir
-                                // y si el nombre de la columna sugiere que es una fecha
-                                const isDateColumn = Object.keys(row)[colIndex].toLowerCase().includes('fecha');
-                                return isDateColumn && !isNaN(dateVal.getTime()) ? dateVal.toLocaleDateString() : val;
-                              })()
-                            : val
-                          )
-                        }
+                        {(() => {
+                          const isCurrency = ['valor_bonificacion', 'valor_descuento', 'pag_sueldo_neto'].includes(key.toLowerCase());
+                          if (typeof val === 'number' && isCurrency) {
+                            return `$${val.toFixed(2)}`;
+                          }
+                          const isDateColumn = ['pag_fecha_inicio', 'pag_fecha_fin'].includes(key.toLowerCase());
+                          if (typeof val === 'string' && isDateColumn && !isNaN(new Date(val))) {
+                              const date = new Date(val);
+                              return date.toLocaleDateString('es-ES', { year: 'numeric', month: '2-digit', day: '2-digit' });
+                          }
+                          return val;
+                        })()}
                       </td>
                     ))}
                   </tr>
@@ -369,7 +354,7 @@ function EmployeePayrollModal({ employeeId, onClose, ciudad }) {
             </table>
           </div>
         ) : (
-          !loading && !error && <p>No hay roles de pago disponibles para este empleado con los filtros seleccionados.</p>
+          !loading && !error && <p>No hay roles de pago disponibles para este empleado. Genera el rol del empleado y refresca la pagina.</p>
         )}
       </div>
     </div>
@@ -436,7 +421,7 @@ function Empleados() {
             empleados.map((e) => (
               <tr key={e.id_Empleado}>
                 <td>
-                  <button onClick={() => handleViewPayroll(e.id_Empleado, e.CiudadDB || selectedCity)} className="view-detail-button">
+                  <button onClick={() => handleViewPayroll(e.id_Empleado, e.id_Ciudad || selectedCity)} className="view-detail-button">
                     Ver Rol
                   </button>
                 </td>
