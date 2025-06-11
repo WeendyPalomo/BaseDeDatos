@@ -21,19 +21,20 @@ console.log("DEBUG: Configuración de Cuenca y Manta ahora está directamente en
 // Objeto de configuración de bases de datos por ciudad
 const configByCity = {};
 
-// Configuración para Quito (se mantiene usando .env)
-if (process.env.DB_NAME_QUITO) {
-  configByCity.QUI = {
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    server: process.env.DB_SERVER,
-    database: process.env.DB_NAME_QUITO,
-    options: {
-      encrypt: true,
-      trustServerCertificate: true // Cambiar a false en producción si usas certificados válidos
-    }
-  };
-}
+// Configuración para Quito (CORREGIDA: Servidor y puerto separados)
+configByCity.QUI = {
+  user: 'sa', 
+  password: '12345', 
+  server: '172.16.1.234', // ¡CORREGIDO! Solo la IP o hostname
+  database: process.env.DB_NAME_QUITO || 'Comercial_Quito', 
+  options: {
+    encrypt: true,
+    trustServerCertificate: true, 
+    port: 1433, // ¡CORREGIDO! El puerto va aquí, en las opciones
+    requestTimeout: 60000 
+  }
+};
+
 
 // Configuración para Guayaquil (se mantiene usando .env)
 if (process.env.DB_NAME_GUAYAQUIL) {
@@ -44,7 +45,8 @@ if (process.env.DB_NAME_GUAYAQUIL) {
     database: process.env.DB_NAME_GUAYAQUIL,
     options: {
       encrypt: true,
-      trustServerCertificate: true
+      trustServerCertificate: true,
+      requestTimeout: 60000 // Aumentar el timeout a 60 segundos
     }
   };
 }
@@ -57,20 +59,22 @@ configByCity.CUE = {
   database: 'Comercial_Cuenca', // Asumiendo este nombre de DB
   options: {
     encrypt: true,
-    trustServerCertificate: true
+    trustServerCertificate: true,
+    requestTimeout: 60000 // Aumentar el timeout a 60 segundos
   }
 };
 
-// Configuración para Manta (hardcoded) - CORREGIDO EL PUERTO
+// Configuración para Manta (hardcoded) - CORREGIDO EL PUERTO Y AUMENTADO EL TIMEOUT
 configByCity.MAN = {
   user: 'sqladmin',
   password: 'Manta2024#SQL!',
   server: 'comercial-manta.ck1qiw8oex6t.us-east-1.rds.amazonaws.com', // Eliminado el :1433 del server
-  database: 'Comercial_Manta', // Asumiendo este nombre de DB
+  database: 'comercial_manta2', // Asumiendo este nombre de DB
   options: {
     encrypt: true,
     trustServerCertificate: true,
-    port: 1433 // Añadido el puerto como una opción separada
+    port: 1433, // Añadido el puerto como una opción separada
+    requestTimeout: 60000 // Aumentar el timeout a 60 segundos
   }
 };
 
@@ -354,6 +358,71 @@ app.get('/api/empleados', async (req, res) => {
   }
 });
 
+// RUTA PARA EL ROL DE PAGO (ACTUALIZADA: consume fn_visualizar_rol sin filtrar por año/mes)
+app.get('/api/empleados/payroll/:id', async (req, res) => {
+    const { ciudad } = req.query;
+    const { id: employeeId } = req.params;
+
+    let pool;
+
+    try {
+        if (!ciudad) {
+            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el rol de pago.');
+        }
+        // Validar si la ciudad es una clave válida en configByCity
+        if (!configByCity[ciudad]) {
+            console.error(`Error: Ciudad no válida para conexión en el rol de pago: ${ciudad}`);
+            return res.status(400).send(`Ciudad no válida para el rol de pago: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
+        }
+
+        pool = await getConnection(ciudad);
+
+        let idPago = null;
+
+        const requestGetIdPago = pool.request();
+        requestGetIdPago.input('id_Empleado', sql.Char(7), employeeId);
+
+        const queryGetIdPago = `
+            SELECT TOP 1 p.id_Pago
+            FROM Pagos p
+            JOIN BonxEmpxPag b ON p.id_Pago = b.id_Pago
+            WHERE b.id_Empleado = @id_Empleado
+            ORDER BY p.pag_Fecha_Inicio DESC;
+        `;
+        
+        console.log(`[PAYROLL DEBUG] Query para obtener idPago: ${queryGetIdPago}`);
+        const resultIdPago = await requestGetIdPago.query(queryGetIdPago);
+
+        if (resultIdPago.recordset.length > 0) {
+            idPago = resultIdPago.recordset[0].id_Pago;
+            console.log(`[PAYROLL DEBUG] id_Pago encontrado: ${idPago}`);
+
+            const requestRolData = pool.request();
+            requestRolData.input('id_Pago', sql.Char(7), idPago);
+
+            const rolResult = await requestRolData.query(`SELECT * FROM dbo.fn_visualizar_rol(@id_Pago);`);
+            const rolData = rolResult.recordset;
+
+            pool.close();
+
+            return res.json(rolData);
+
+        } else {
+            console.log(`[PAYROLL DEBUG] No se encontró id_Pago para el empleado ${employeeId}.`);
+            pool.close();
+            return res.json([]);
+        }
+
+    } catch (err) {
+        console.error('Error al obtener el rol de pago del empleado:', err);
+        if (pool && pool.connected) {
+            pool.close();
+        }
+        res.status(500).send('Error al obtener el rol de pago del empleado.');
+    }
+});
+
+
 // Compras (listado) - MODIFICADO para eliminar 'id_Ciudad_Compra'
 app.get('/api/compras', async (req, res) => {
     const ciudad = req.query.ciudad || 'ALL';
@@ -505,69 +574,6 @@ app.get('/api/compras/detalle/:id', async (req, res) => {
     }
 });
 
-// RUTA PARA EL ROL DE PAGO (ACTUALIZADA: consume fn_visualizar_rol sin filtrar por año/mes)
-app.get('/api/empleados/payroll/:id', async (req, res) => {
-    const { ciudad } = req.query;
-    const { id: employeeId } = req.params;
-
-    let pool;
-
-    try {
-        if (!ciudad) {
-            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el rol de pago.');
-        }
-        // Validar si la ciudad es una clave válida en configByCity
-        if (!configByCity[ciudad]) {
-            console.error(`Error: Ciudad no válida para conexión en el rol de pago: ${ciudad}`);
-            return res.status(400).send(`Ciudad no válida para el rol de pago: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
-        }
-
-        pool = await getConnection(ciudad);
-
-        let idPago = null;
-
-        const requestGetIdPago = pool.request();
-        requestGetIdPago.input('id_Empleado', sql.Char(7), employeeId);
-
-        const queryGetIdPago = `
-            SELECT TOP 1 p.id_Pago
-            FROM Pagos p
-            JOIN BonxEmpxPag b ON p.id_Pago = b.id_Pago
-            WHERE b.id_Empleado = @id_Empleado
-            ORDER BY p.pag_Fecha_Inicio DESC;
-        `;
-        
-        console.log(`[PAYROLL DEBUG] Query para obtener idPago: ${queryGetIdPago}`);
-        const resultIdPago = await requestGetIdPago.query(queryGetIdPago);
-
-        if (resultIdPago.recordset.length > 0) {
-            idPago = resultIdPago.recordset[0].id_Pago;
-            console.log(`[PAYROLL DEBUG] id_Pago encontrado: ${idPago}`);
-
-            const requestRolData = pool.request();
-            requestRolData.input('id_Pago', sql.Char(7), idPago);
-
-            const rolResult = await requestRolData.query(`SELECT * FROM dbo.fn_visualizar_rol(@id_Pago);`);
-            const rolData = rolResult.recordset;
-
-            pool.close();
-
-            return res.json(rolData);
-
-        } else {
-            console.log(`[PAYROLL DEBUG] No se encontró id_Pago para el empleado ${employeeId}.`);
-            pool.close();
-            return res.json([]);
-        }
-
-    } catch (err) {
-        console.error('Error al obtener el rol de pago del empleado:', err);
-        if (pool && pool.connected) {
-            pool.close();
-        }
-        res.status(500).send('Error al obtener el rol de pago del empleado.');
-    }
-});
 
 
 // Ruta para Ventas - MODIFICADO para filtrar por conexión de base de datos
@@ -713,7 +719,7 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
         asientosResult = (await Promise.all(promesasAsientos)).flat();
     
     console.log(`[API Contabilidad - Asientos] Total de resultados a enviar al frontend: ${asientosResult.length}`); // Nuevo log del total
-    res.json(asientosResult);
+    res.json(asientosResult); 
   } catch (err) {
     console.error("Error general al obtener asientos contables:", err);
     res.status(500).send("Error al obtener asientos contables");
@@ -796,67 +802,72 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
 // ENDPOINTS PARA INVENTARIO (AHORA PARA AJUSTES)
 
 // Ruta para listar ajustes de inventario (resumen)
+// Esta ruta ya filtra por ciudad al conectarse a la base de datos específica
+// según el parámetro 'ciudad' provisto, o consolida de todas las bases de datos.
+// No se necesita un filtro en la consulta SQL porque la selección de la DB ya lo hace.
+// ENDPOINTS PARA INVENTARIO (AHORA PARA AJUSTES)
+
 app.get('/api/inventario/ajustes', async (req, res) => {
-    const ciudad = req.query.ciudad || 'ALL';
-    console.log(`[API Inventario - Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`);
-    try {
-        let ajustesResult = [];
-        const citiesToQuery = ciudad === 'ALL' || !ciudad
-          ? Object.keys(configByCity)
-          : [ciudad];
+  const ciudad = (req.query.ciudad || 'ALL').toUpperCase(); // ← Normalizado a mayúsculas
+  console.log(`[API Inventario - Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`);
 
-        if (citiesToQuery.length === 0) {
-          console.warn('[API Inventario - Ajustes Lista] No hay ciudades configuradas para la consulta de ajustes.');
-          return res.json([]);
-        }
+  try {
+    let ajustesResult = [];
 
-        console.log(`[API Inventario - Ajustes Lista] Ciudades para la consulta: ${citiesToQuery.join(', ')}`);
+    const citiesToQuery = ciudad === 'ALL'
+      ? Object.keys(configByCity)
+      : [ciudad];
 
-        const promesasAjustes = citiesToQuery.map(async c => {
-            let currentPool;
-            if (!configByCity[c]) {
-              console.warn(`[API Inventario - Ajustes Lista] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`);
-              return [];
-            }
-            try {
-                console.log(`[API Inventario - Ajustes Lista] Ejecutando consulta en la base de datos: ${configByCity[c].database} (código: ${c})`);
-                currentPool = await getConnection(c);
-                const request = currentPool.request();
-                const query = `
-                        SELECT
-                            id_Ajuste,
-                            USER_ID,
-                            aju_Descripcion,
-                            aju_FechaHora,
-                            aju_Num_Produc,
-                            ESTADO_AJU
-                        FROM AJUSTES
-                        ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
-                    `;
-                const result = await request.query(query);
-                currentPool.close();
-
-                console.log(`[API Inventario - Ajustes Lista] Raw data from ${configByCity[c].database}:`, JSON.stringify(result.recordset, null, 2));
-
-                console.log(`[API Inventario - Ajustes Lista] Ciudad ${c} tiene ${result.recordset.length} ajustes`);
-                return result.recordset.map(a => ({
-                    ...a,
-                    CiudadDB: configByCity[c].database,
-                    id_Ciudad: c
-                }));
-            } catch (innerErr) {
-                console.error(`Error al obtener ajustes de inventario de ${c}:`, innerErr);
-                return [];
-            }
-        });
-        ajustesResult = (await Promise.all(promesasAjustes)).flat();
-        console.log(`[API Inventario - Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`);
-        res.json(ajustesResult);
-    } catch (err) {
-        console.error('Error general al obtener ajustes de inventario:', err);
-        res.status(500).send('Error al obtener ajustes de inventario');
+    if (citiesToQuery.length === 0) {
+      console.warn('[API Inventario - Ajustes Lista] No hay ciudades configuradas para la consulta de ajustes.');
+      return res.json([]);
     }
+
+    for (const c of citiesToQuery) {
+      if (!configByCity[c]) {
+        console.warn(`[API Inventario - Ajustes Lista] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`);
+        continue;
+      }
+
+      try {
+        const pool = await getConnection(c);
+        const request = pool.request();
+        const query = `
+          SELECT
+            id_Ajuste,
+            USER_ID,
+            aju_Descripcion,
+            aju_FechaHora,
+            aju_Num_Produc,
+            ESTADO_AJU
+          FROM AJUSTES
+          ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
+        `;
+        const result = await request.query(query);
+        pool.close();
+
+        const ajustes = result.recordset.map(a => ({
+          ...a,
+          CiudadDB: configByCity[c].database,
+          id_Ciudad: c
+        }));
+
+        ajustesResult.push(...ajustes);
+
+      } catch (innerErr) {
+        console.error(`[API Inventario - Ajustes Lista] Error al obtener ajustes para ciudad ${c}:`, innerErr);
+      }
+    }
+
+    res.json(ajustesResult);
+
+  } catch (err) {
+    console.error('[API Inventario - Ajustes Lista] Error general:', err);
+    res.status(500).send('Error al obtener ajustes de inventario');
+  }
 });
+
+
 // Ruta para obtener el detalle de un ajuste de inventario por ID
 app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
     const { ciudad } = req.query;
@@ -933,6 +944,7 @@ app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
     return res.status(404).send(`Ajuste con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`);
 });
 
+
 // ENDPOINT PARA LOG GENERAL
 app.get('/api/general/log', async (req, res) => {
     let pool;
@@ -954,6 +966,8 @@ app.get('/api/general/log', async (req, res) => {
             try {
                 currentPool = await getConnection(c);
                 const request = currentPool.request();
+                // Aumentar el requestTimeout aquí también para las solicitudes individuales al SP
+                request.timeout = 60000; // 60 segundos
                 const result = await request.input('p_limit', sql.Int, 50).execute('dbo.sp_ver_log_general');
                 currentPool.close();
                 return result.recordset.map(t => ({ ...t, CiudadDB: configByCity[c].database }));

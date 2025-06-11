@@ -1050,8 +1050,6 @@ function Contabilidad() {
 
 // NUEVO COMPONENTE: Ventana Modal para Detalle de Ajuste de Inventario
 // Renombrado de InventarioDetailModal para manejar detalles de AJUSTES
-// NUEVO COMPONENTE: Ventana Modal para Detalle de Ajuste de Inventario
-// Renombrado de InventarioDetailModal para manejar detalles de AJUSTES
 function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
   const [ajusteDetails, setAjusteDetails] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -1178,10 +1176,10 @@ function Inventario() {
   const [currentAjusteCiudad, setCurrentAjusteCiudad] = useState(null); // Cambiado de `currentProductoCiudad`
 
   useEffect(() => {
-    // NUEVO ENDPOINT para listar ajustes de inventario
-    const queryParam = selectedCity !== "ALL" ? `?ciudad=${selectedCity}` : "";
-    // Asegúrate de que tu backend tenga este endpoint que lista los ajustes
-    fetch(`http://localhost:3001/api/inventario/ajustes${queryParam}`)
+    // setAjustes([]);
+     const queryParam = selectedCity !== "ALL" ? `?ciudad=${selectedCity}` : "";
+    
+     fetch(`http://localhost:3001/api/inventario/ajustes${queryParam}`)
       .then((res) => res.json())
       .then((data) => setAjustes(data))
       .catch((err) => console.error("Error al obtener ajustes de inventario:", err));
@@ -1232,6 +1230,7 @@ function Inventario() {
                 <td>{a.aju_Num_Produc}</td> {/* Muestra el número de productos */}
                 <td>{a.ESTADO_AJU}</td>
                 <td>{a.CiudadDB || 'N/A'}</td> {/* Muestra el nombre de la Base de Datos */}
+
               </tr>
             ))
           ) : (
