@@ -9,6 +9,17 @@ const app = express();
 app.use(cors()); // Habilitar CORS para todas las rutas
 app.use(express.json()); // Habilitar el uso de JSON en las peticiones
 
+// --- DEBUG: Loguear variables de entorno para depuración ---
+console.log("DEBUG: process.env.DB_USER:", process.env.DB_USER ? "Defined" : "Undefined");
+console.log("DEBUG: process.env.DB_PASSWORD:", process.env.DB_PASSWORD ? "Defined" : "Undefined");
+console.log("DEBUG: process.env.DB_SERVER:", process.env.DB_SERVER ? "Defined" : "Undefined");
+console.log("DEBUG: process.env.DB_NAME_QUITO:", process.env.DB_NAME_QUITO ? `Defined as "${process.env.DB_NAME_QUITO}"` : "Undefined");
+console.log("DEBUG: process.env.DB_NAME_GUAYAQUIL:", process.env.DB_NAME_GUAYAQUIL ? `Defined as "${process.env.DB_NAME_GUAYAQUIL}"` : "Undefined");
+// Si tienes otras ciudades, añade logs para ellas también:
+// console.log("DEBUG: process.env.DB_NAME_CUENCA:", process.env.DB_NAME_CUENCA ? `Defined as "${process.env.DB_NAME_CUENCA}"` : "Undefined");
+// console.log("DEBUG: process.env.DB_NAME_MANTA:", process.env.DB_NAME_MANTA ? `Defined as "${process.env.DB_NAME_MANTA}"` : "Undefined");
+// --- FIN DEBUG ---
+
 // Objeto de configuración de bases de datos por ciudad (desde el ejemplo que proporcionaste)
 // Asegúrate de que estas variables de entorno estén definidas en tu archivo .env
 const configByCity = {};
@@ -65,6 +76,10 @@ if (process.env.DB_NAME_GUAYAQUIL) {
 //   };
 // }
 
+// --- DEBUG: Loguear configByCity después de su inicialización ---
+console.log("DEBUG: configByCity after initialization:", JSON.stringify(configByCity, null, 2));
+// --- FIN DEBUG ---
+
 
 // Objeto para almacenar pools de conexión ya creados y reutilizarlos.
 const connectionPools = {};
@@ -84,6 +99,7 @@ const getConnection = async (cityCode) => {
 
   // Si ya tenemos un pool para esta ciudad y está conectado, lo devolvemos.
   if (connectionPools[normalizedCityCode] && connectionPools[normalizedCityCode].connected) {
+    console.log(`DEBUG: Reutilizando pool existente para la ciudad ${normalizedCityCode}`); // Nuevo log
     return connectionPools[normalizedCityCode];
   }
 
@@ -93,6 +109,7 @@ const getConnection = async (cityCode) => {
   }
 
   try {
+    console.log(`DEBUG: Intentando conectar a la base de datos: ${dbConfig.database} para la ciudad ${normalizedCityCode}`); // Nuevo log
     const pool = new sql.ConnectionPool(dbConfig);
     await pool.connect();
     // Almacenamos el pool para futura reutilización.
@@ -647,7 +664,9 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
   const ciudad = req.query.ciudad || "ALL";
   try {
     let asientosResult = [];
-    const allCities = Object.keys(configByCity);
+    
+    // DEBUG: Log the incoming ciudad parameter
+    console.log(`[API Contabilidad - Asientos] Recibida solicitud. Ciudad de filtro (req.query.ciudad): "${ciudad}"`);
 
     const citiesToQuery = ciudad === 'ALL' || !ciudad
       ? Object.keys(configByCity)
@@ -655,16 +674,18 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
 
     // Validar que citiesToQuery no esté vacío antes de iterar
     if (citiesToQuery.length === 0) {
-      console.warn('[API Contabilidad] No hay ciudades configuradas para la consulta de asientos.');
+      console.warn('[API Contabilidad - Asientos] No hay ciudades configuradas para la consulta de asientos.');
       return res.json([]);
     }
 
+    console.log(`[API Contabilidad - Asientos] Ciudades para la consulta: ${citiesToQuery.join(', ')}`); // Nuevo log para ver qué ciudades se van a consultar
+
     const promesasAsientos = citiesToQuery.map(async c => {
-            console.log(`Consultando ciudad: ${c}`);
+            console.log(`[API Contabilidad - Asientos] Procesando ciudad: ${c}`); // Nuevo log dentro del map
             let currentPool;
             // Asegurarse de que la configuración para 'c' existe antes de intentar conectar
             if (!configByCity[c]) {
-              console.warn(`[API Contabilidad] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`);
+              console.warn(`[API Contabilidad - Asientos] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`);
               return []; // Retorna un array vacío para esta ciudad
             }
             try {
@@ -683,7 +704,7 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
                 `;
                 const result = await request.query(query);
                 currentPool.close();
-                console.log(`Ciudad ${c} tiene ${result.recordset.length} asientos`);
+                console.log(`[API Contabilidad - Asientos] Ciudad ${c} tiene ${result.recordset.length} asientos`); // Nuevo log de cantidad de asientos
                 // Añadir el nombre de la base de datos y el id_Ciudad (c) basado en la conexión
                 return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database, id_Ciudad: c }));
             } catch (innerErr) {
@@ -691,9 +712,9 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
                 return [];
             }
         });
-        console.log("Ciudades configuradas:", allCities);
         asientosResult = (await Promise.all(promesasAsientos)).flat();
     
+    console.log(`[API Contabilidad - Asientos] Total de resultados a enviar al frontend: ${asientosResult.length}`); // Nuevo log del total
     res.json(asientosResult);
   } catch (err) {
     console.error("Error general al obtener asientos contables:", err);
