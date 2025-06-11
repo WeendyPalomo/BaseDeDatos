@@ -1065,6 +1065,8 @@ function Contabilidad() {
 
 // NUEVO COMPONENTE: Ventana Modal para Detalle de Ajuste de Inventario
 // Renombrado de InventarioDetailModal para manejar detalles de AJUSTES
+// NUEVO COMPONENTE: Ventana Modal para Detalle de Ajuste de Inventario
+// Renombrado de InventarioDetailModal para manejar detalles de AJUSTES
 function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
   const [ajusteDetails, setAjusteDetails] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
@@ -1088,6 +1090,8 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
         return res.json();
       })
       .then((data) => {
+        // --- LOG DEPURACIÓN: Verifica los datos recibidos del backend ---
+        console.log("Datos de ajuste de inventario recibidos:", data);
         setAjusteDetails(data);
         setLoading(false);
       })
@@ -1100,6 +1104,7 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
 
   if (!ajusteId || !ciudad) return null;
 
+  // La función extractValue se sigue usando para la cabecera porque el backend aún envía prefijos aquí
   const extractValue = (fullString, prefix) => {
     if (fullString && typeof fullString === 'string' && fullString.startsWith(prefix)) {
       return fullString.substring(prefix.length).trim();
@@ -1116,30 +1121,36 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
         {loading && <p>Cargando detalles...</p>}
         {error && <p className="error-message">{error}</p>}
 
-        {ajusteDetails && (
+        {!loading && !error && ajusteDetails && (
           <div className="ajuste-detail-container">
             {ajusteDetails.header && (
               <div className="ajuste-header">
                 <h3>Información General del Ajuste</h3>
-                <p><strong>ID Ajuste:</strong> {extractValue(ajusteDetails.header.columna1, 'Ajuste:')}</p>
-                <p><strong>Descripción:</strong> {extractValue(ajusteDetails.header.columna2, 'Descripción:')}</p>
-                <p><strong>Fecha/Hora:</strong> {ajusteDetails.header.columna3}</p>
-                <p><strong>Usuario:</strong> {extractValue(ajusteDetails.header.columna4, 'Usuario:')}</p>
-                <p><strong>Estado:</strong> {extractValue(ajusteDetails.header.columna5, 'Estado:')}</p>
-                <p><strong>Productos:</strong> {extractValue(ajusteDetails.header.columna6, 'Productos:')}</p>
+                {/* Se usa extractValue para limpiar prefijos del header */}
+                <p><strong>ID Ajuste:</strong> {extractValue(ajusteDetails.header.id_ajuste, 'Ajuste:')}</p>
+                <p><strong>Descripción:</strong> {extractValue(ajusteDetails.header.descripcion, 'Descripción:')}</p>
+                <p>
+                  <strong>Fecha/Hora:</strong>{" "}
+                  {ajusteDetails.header.fecha_hora
+                    ? new Date(ajusteDetails.header.fecha_hora).toLocaleString("es-ES")
+                    : "N/A"}
+                </p>
+                <p><strong>Usuario:</strong> {extractValue(ajusteDetails.header.usuario, 'Usuario:')}</p>
+                <p><strong>Estado:</strong> {extractValue(ajusteDetails.header.estado, 'Estado:')}</p>
               </div>
             )}
 
+            <h3>Detalle de Productos</h3>
             {ajusteDetails.details && ajusteDetails.details.length > 0 ? (
-              <div className="ajuste-details">
-                <h3>Detalle de Productos</h3>
+              <div className="table-responsive">
                 <table className="detail-table">
                   <thead>
                     <tr>
                       <th>ID Producto</th>
                       <th>Descripción Producto</th>
+                      <th>U.M.</th>
                       <th>Cantidad Ajustada</th>
-                      <th>Estado</th>
+                      <th>Estado</th> {/* Asegúrate que esta columna exista */}
                     </tr>
                   </thead>
                   <tbody>
@@ -1147,8 +1158,10 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
                       <tr key={item.id_Producto || index}>
                         <td>{item.id_Producto}</td>
                         <td>{item.pro_Descripcion}</td>
+                        <td>{item.unidad_medida}</td>
                         <td>{item.aju_Cantidad}</td>
-                        <td>{item.ESTADO_AJUD}</td>
+                        {/* Renderiza el estado directamente de la propiedad ESTADO_AJUD */}
+                        <td>{item.ESTADO_AJUD || 'N/A'}</td> 
                       </tr>
                     ))}
                   </tbody>
@@ -1158,11 +1171,11 @@ function AjusteDetailModal({ ajusteId, onClose, ciudad }) {
               <p>No hay detalles de productos para este ajuste.</p>
             )}
 
-            {/* Mostrar totales */}
+            {/* Mostrar totales si existen y si totalTexto tiene un valor */}
             {ajusteDetails.totals && ajusteDetails.totals.totalTexto && (
               <div className="ajuste-totales" style={{ marginTop: '1rem' }}>
                 <h3>Totales</h3>
-                <p><strong>{ajusteDetails.totals.totalTexto}</strong></p>
+                <p><strong>Total Productos:</strong> {ajusteDetails.totals.totalTexto}</p>
               </div>
             )}
           </div>

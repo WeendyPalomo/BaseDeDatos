@@ -820,6 +820,7 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
 // Ruta para listar ajustes de inventario (resumen)
 app.get('/api/inventario/ajustes', async (req, res) => {
     const ciudad = req.query.ciudad || 'ALL';
+    console.log(`[DEBUG - Inventario Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`); // Nuevo log
     let pool;
     try {
         let ajustesResult = [];
@@ -831,6 +832,7 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                 try {
                     currentPool = await getConnection(c);
                     const request = currentPool.request();
+                    // CORRECCIÓN: Eliminado id_Ciudad de la selección, si no existe en la tabla AJUSTES
                     const query = `
                         SELECT
                             id_Ajuste,
@@ -838,15 +840,15 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                             aju_Descripcion,
                             aju_FechaHora,
                             aju_Num_Produc,
-                            ESTADO_AJU,
-                            id_Ciudad -- Asegúrate de que esta columna esté en tu tabla AJUSTES
+                            ESTADO_AJU
                         FROM AJUSTES
                         ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
                     `;
+                    console.log(`[DEBUG - Inventario Ajustes Lista] Ejecutando consulta ALL en la ciudad: ${c}`); // Nuevo log
                     const result = await request.query(query);
                     currentPool.close();
-                    // Añadir el nombre de la base de datos
-                    return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database }));
+                    // Añadir el nombre de la base de datos y el id_Ciudad (c) basado en la conexión
+                    return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database, id_Ciudad: c }));
                 } catch (innerErr) {
                     console.error(`Error al obtener ajustes de inventario de ${c}:`, innerErr);
                     return [];
@@ -857,6 +859,7 @@ app.get('/api/inventario/ajustes', async (req, res) => {
             try {
                 pool = await getConnection(ciudad);
                 const request = pool.request();
+                // CORRECCIÓN: Eliminado id_Ciudad de la selección y de la cláusula WHERE, si no existe en la tabla AJUSTES
                 const query = `
                     SELECT
                         id_Ajuste,
@@ -864,22 +867,24 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                         aju_Descripcion,
                         aju_FechaHora,
                         aju_Num_Produc,
-                        ESTADO_AJU,
-                        id_Ciudad -- Asegúrate de que esta columna esté en tu tabla AJUSTES
+                        ESTADO_AJU
                     FROM AJUSTES
-                    WHERE id_Ciudad = @ciudad -- Filtrar por ciudad del ajuste
                     ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
                 `;
-                request.input('ciudad', sql.Char(3), ciudad);
+                // Ya no se filtra por id_Ciudad en la consulta SQL directamente
+                // request.input('ciudad', sql.Char(3), ciudad);
+                console.log(`[DEBUG - Inventario Ajustes Lista] Ejecutando consulta filtrada para la ciudad: ${ciudad}`); // Nuevo log
                 const result = await request.query(query);
                 pool.close();
-                // Añadir el nombre de la base de datos
-                ajustesResult = result.recordset.map(a => ({ ...a, CiudadDB: configByCity[ciudad].database }));
+                // Añadir el nombre de la base de datos y el id_Ciudad (ciudad) basado en la conexión
+                ajustesResult = result.recordset.map(a => ({ ...a, CiudadDB: configByCity[ciudad].database, id_Ciudad: ciudad }));
+                console.log(`[DEBUG - Inventario Ajustes Lista] Resultados obtenidos para ${ciudad}:`, ajustesResult.length); // Nuevo log
             } catch (err) {
                 console.error(`Error al obtener ajustes de inventario para la ciudad ${ciudad}:`, err);
                 return res.status(500).send(`Error al obtener ajustes de inventario para la ciudad ${ciudad}`);
             }
         }
+        console.log(`[DEBUG - Inventario Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`); // Nuevo log
         res.json(ajustesResult);
     } catch (err) {
         console.error('Error general al obtener ajustes de inventario:', err);
@@ -890,46 +895,68 @@ app.get('/api/inventario/ajustes', async (req, res) => {
 app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
     const { ciudad } = req.query;
     const { id: ajusteId } = req.params;
-    let pool;
-    try {
-        if (!ciudad) {
-            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el detalle del ajuste.');
-        }
-        // Validar si la ciudad es una clave válida en configByCity
-        if (!configByCity[ciudad]) {
-            console.error(`Error: Ciudad no válida para conexión en el detalle del ajuste: ${ciudad}`);
-            return res.status(400).send(`Ciudad no válida para el ajuste: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
-        }
 
-        pool = await getConnection(ciudad);
-        const request = pool.request();
+    console.log(`[DEBUG - Ajuste Detalle] Recibida solicitud para ID: ${ajusteId}, Ciudad (req.query.ciudad): "${ciudad}"`); // Nuevo log
 
-        request.input('p_id_ajuste', sql.VarChar(50), ajusteId);
-        const result = await request.execute('dbo.sp_ver_ajuste_completo_unido');
-        pool.close();
-
-        const rows = result.recordsets[0] || [];
-
-        const headerRow = rows.find(r => r.tipo === 'CABECERA') || null;
-        const detailRows = rows.filter(r => r.tipo === 'DETALLE');
-        const totalRow = rows.find(r => r.tipo === 'TOTALES') || null;
-
-        const formattedDetails = detailRows.map(row => ({
-            id_Producto: row.columna1?.replace('Producto: ', '') ?? '',
-            pro_Descripcion: row.columna2,
-            aju_Cantidad: row.columna4?.replace('Cantidad: ', '') ?? '',
-            ESTADO_AJUD: row.columna8?.replace('Estado PxA: ', '') ?? ''
-        }));
-
-        res.json({
-            header: headerRow,
-            details: formattedDetails,
-            totals: totalRow
-        });
-    } catch (err) {
-        console.error('Error al obtener el detalle del ajuste:', err);
-        res.status(500).send('Error al obtener el detalle del ajuste.');
+    let citiesToSearch = [];
+    if (ciudad && ciudad !== "ALL" && configByCity[ciudad]) {
+        citiesToSearch = [ciudad];
+        console.log(`[DEBUG - Ajuste Detalle] Ciudad es válida y configurada. Buscando solo en: ${ciudad}`); // Nuevo log
+    } else {
+        citiesToSearch = Object.keys(configByCity); // Si es 'ALL', no especificada o no válida, buscar en todas
+        console.log(`[DEBUG - Ajuste Detalle] Ciudad no especificada/válida. Buscando en todas las ciudades configuradas: ${citiesToSearch.join(', ')}`); // Nuevo log
     }
+
+    for (const cityCode of citiesToSearch) {
+        console.log(`[DEBUG - Ajuste Detalle] Intentando conectar a la ciudad: ${cityCode}`); // Nuevo log
+        try {
+            const pool = await getConnection(cityCode);
+            const request = pool.request();
+
+            request.input('p_id_ajuste', sql.VarChar(50), ajusteId);
+            console.log(`[DEBUG - Ajuste Detalle] Ejecutando SP 'dbo.sp_ver_ajuste_completo_unido' en ${cityCode} para ID ${ajusteId}`); // Nuevo log
+            const result = await request.execute('dbo.sp_ver_ajuste_completo_unido');
+            pool.close();
+
+            const rows = result.recordsets[0] || [];
+            console.log(`[DEBUG - Ajuste Detalle] Raw rows from SP for ${ajusteId} in ${cityCode}:`, JSON.stringify(rows, null, 2)); // Log para depuración
+
+            const headerRow = rows.find(r => r.tipo === 'CABECERA') || null;
+            if (headerRow) { // Si se encuentra la cabecera en esta BD, se devuelve
+                const detailRows = rows.filter(r => r.tipo === 'DETALLE');
+                const totalRow = rows.find(r => r.tipo === 'TOTALES') || null;
+
+                const formattedDetails = detailRows.map(row => ({
+                    // Aquí es donde se mapean las columnas del SP a los nombres esperados por el frontend
+                    id_Producto: row.columna1?.replace('Producto: ', '')?.trim() ?? '',
+                    pro_Descripcion: row.columna2?.trim() ?? '',
+                    unidad_medida: row.columna3?.replace('UM: ', '')?.trim() ?? '',
+                    aju_Cantidad: row.columna4?.replace('Cantidad: ', '')?.trim() ?? '',
+                    ESTADO_AJUD: row.columna5?.replace('Estado PxA: ', '')?.trim() ?? '' // Columna 5 del detalle es el estado PxA
+                }));
+
+                console.log(`[DEBUG - Ajuste Detalle] Ajuste encontrado en ${cityCode}.`); // Nuevo log
+                return res.json({
+                    header: headerRow ? {
+                        id_ajuste: headerRow.columna1?.replace('Ajuste: ', '')?.trim() ?? '',
+                        descripcion: headerRow.columna2?.replace('Descripción: ', '')?.trim() ?? '',
+                        fecha_hora: headerRow.columna3?.trim() ?? '', // Mantener como string, el frontend lo formateará
+                        usuario: headerRow.columna4?.replace('Usuario: ', '')?.trim() ?? '',
+                        estado: headerRow.columna5?.replace('Estado: ', '')?.trim() ?? ''
+                    } : null,
+                    details: formattedDetails,
+                    totals: totalRow ? {
+                        totalTexto: totalRow.columna5 // Asumiendo que columna5 tiene el texto total en la fila TOTALES
+                    } : null
+                });
+            }
+        } catch (err) {
+            console.warn(`[DEBUG - Ajuste Detalle] Ajuste ${ajusteId} no encontrado o error en ${cityCode}: ${err.message}`); // Nuevo log
+        }
+    }
+
+    console.warn(`[DEBUG - Ajuste Detalle] Ajuste con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`); // Nuevo log
+    return res.status(404).send(`Ajuste con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`);
 });
 
 // ENDPOINT PARA LOG GENERAL
