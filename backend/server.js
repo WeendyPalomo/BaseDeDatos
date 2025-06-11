@@ -2,7 +2,7 @@
 
 require('dotenv').config(); // Carga las variables de entorno
 const express = require('express');
-const cors = require('cors');
+const cors = require('cors'); // Habilitar CORS para todas las rutas
 const sql = require('mssql');
 
 const app = express();
@@ -31,26 +31,26 @@ const configByCity = {
       trustServerCertificate: true
     }
   },
-  CUE: {
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    server: process.env.DB_SERVER,
-    database: process.env.DB_NAME_CUENCA,
-    options: {
-      encrypt: true,
-      trustServerCertificate: true
-    }
-  },
-  MAN: {
-    user: process.env.DB_USER,
-    password: process.env.DB_PASSWORD,
-    server: process.env.DB_SERVER,
-    database: process.env.DB_NAME_MANTA,
-    options: {
-      encrypt: true,
-      trustServerCertificate: true
-    }
-  }
+  // CUE: { // CONFIGURACIÓN COMENTADA PARA CUENCA
+  //   user: process.env.DB_USER,
+  //   password: process.env.DB_PASSWORD,
+  //   server: process.env.DB_SERVER,
+  //   database: process.env.DB_NAME_CUENCA,
+  //   options: {
+  //     encrypt: true,
+  //     trustServerCertificate: true
+  //   }
+  // },
+  // MAN: { // CONFIGURACIÓN COMENTADA PARA MANTA
+  //   user: process.env.DB_USER,
+  //   password: process.env.DB_PASSWORD,
+  //   server: process.env.DB_SERVER,
+  //   database: process.env.DB_NAME_MANTA,
+  //   options: {
+  //     encrypt: true,
+  //     trustServerCertificate: true
+  //   }
+  // }
 };
 
 // Objeto para almacenar pools de conexión ya creados y reutilizarlos.
@@ -262,83 +262,122 @@ app.get('/api/facturas/detalle/:id', async (req, res) => {
     return res.status(404).send(`Factura con ID ${id} no encontrada en ninguna de las bases de datos configuradas.`);
 });
 
-// Empleados (por ciudad o todas)
+// Empleados (por ciudad o todas) - MODIFICADO PARA FILTRAR POR CONEXIÓN con logs detallados
 app.get('/api/empleados', async (req, res) => {
-    const ciudad = req.query.ciudad || 'ALL';
-    console.log(`[API Empleados] Recibida solicitud. Ciudad de filtro: "${ciudad}"`);
-    let pool;
-    try {
-        let empleadosResult = [];
-        const allCities = Object.keys(configByCity);
+  const ciudad = req.query.ciudad || 'ALL';
+  console.log(`[API Empleados] Recibida solicitud. Ciudad de filtro: "${ciudad}"`);
 
-        if (ciudad === 'ALL') {
-            const promesasEmpleados = allCities.map(async c => {
-                let currentPool;
-                try {
-                    currentPool = await getConnection(c);
-                    const query = `
-                        SELECT
-                            E.id_Empleado, E.emp_Cedula, E.emp_Nombre1, E.emp_Nombre2,
-                            E.emp_Apellido1, E.emp_Apellido2, E.emp_Sexo, E.emp_FechaNacimiento,
-                            E.emp_Sueldo, E.emp_Mail, D.dep_Nombre, R.rol_Descripcion,
-                            E.id_Ciudad AS EmpleadoCiudadAsignada,
-                            (SELECT TOP 1 CP.nombre_ciudad
-                            FROM ciuxprov CP
-                            WHERE LEFT(E.emp_Cedula, 2) = CP.codigo_provincia
-                            ORDER BY CP.nombre_ciudad) AS CiudadCedula
-                        FROM Empleados E
-                        LEFT JOIN Departamentos D ON E.id_Departamento = D.id_Departamento
-                        LEFT JOIN Roles R ON E.id_Rol = R.id_Rol
-                        ORDER BY E.emp_Apellido1, E.emp_Nombre1
-                    `;
-                    const result = await currentPool.request().query(query);
-                    currentPool.close();
-                    // Añadir el nombre de la base de datos
-                    return result.recordset.map(e => ({ ...e, CiudadDB: configByCity[c].database }));
-                } catch (innerErr) {
-                    console.error(`Error al obtener empleados de ${c}:`, innerErr);
-                    return [];
-                }
-            });
-            empleadosResult = (await Promise.all(promesasEmpleados)).flat();
-        } else {
-            try {
-                pool = await getConnection(ciudad);
-                const request = pool.request();
-                const query = `
-                    SELECT
-                        E.id_Empleado, E.emp_Cedula, E.emp_Nombre1, E.emp_Nombre2,
-                        E.emp_Apellido1, E.emp_Apellido2, E.emp_Sexo, E.emp_FechaNacimiento,
-                        E.emp_Sueldo, E.emp_Mail, D.dep_Nombre, R.rol_Descripcion,
-                        E.id_Ciudad AS EmpleadoCiudadAsignada,
-                        (SELECT TOP 1 CP.nombre_ciudad
-                        FROM ciuxprov CP
-                        WHERE LEFT(E.emp_Cedula, 2) = CP.codigo_provincia
-                        ORDER BY CP.nombre_ciudad) AS CiudadCedula
-                    FROM Empleados E
-                    LEFT JOIN Departamentos D ON E.id_Departamento = D.id_Departamento
-                    LEFT JOIN Roles R ON E.id_Rol = R.id_Rol
-                    WHERE E.id_Ciudad = @ciudad -- Filtrando por la ciudad asignada al empleado
-                    ORDER BY E.emp_Apellido1, E.emp_Nombre1
-                `;
-                request.input('ciudad', sql.Char(3), ciudad);
-                const result = await request.query(query);
-                pool.close();
-                // Añadir el nombre de la base de datos
-                empleadosResult = result.recordset.map(e => ({ ...e, CiudadDB: configByCity[ciudad].database }));
-            } catch (err) {
-                console.error(`Error al obtener empleados para la ciudad ${ciudad}:`, err);
-                return res.status(500).send(`Error al obtener empleados para la ciudad ${ciudad}`);
-            }
+  const ciudadesAConsultar = ciudad === 'ALL'
+    ? Object.keys(configByCity)
+    : [ciudad];
+
+  try {
+    let empleadosFinal = [];
+
+    for (const c of ciudadesAConsultar) {
+      try {
+        console.log(`--> Conectando a ${c}...`);
+        const pool = await getConnection(c);
+        const result = await pool.request().query(`
+          SELECT
+            E.id_Empleado, E.emp_Cedula, E.emp_Nombre1, E.emp_Nombre2,
+            E.emp_Apellido1, E.emp_Apellido2, E.emp_Sexo, E.emp_FechaNacimiento,
+            E.emp_Sueldo, E.emp_Mail, D.dep_Nombre, R.rol_Descripcion,
+            (SELECT TOP 1 CP.nombre_ciudad
+              FROM ciuxprov CP
+              WHERE LEFT(E.emp_Cedula, 2) = CP.codigo_provincia
+              ORDER BY CP.nombre_ciudad) AS CiudadCedula
+          FROM Empleados E
+          LEFT JOIN Departamentos D ON E.id_Departamento = D.id_Departamento
+          LEFT JOIN Roles R ON E.id_Rol = R.id_Rol
+          ORDER BY E.emp_Apellido1, E.emp_Nombre1
+        `);
+
+        empleadosFinal.push(
+          ...result.recordset.map(e => ({
+            ...e,
+            CiudadDB: configByCity[c].database,
+            id_Ciudad: c // lo necesitamos para el rol
+          }))
+        );
+      } catch (errInterno) {
+        console.error(`Error al consultar ciudad ${c}:`, errInterno.message);
+      }
+    }
+
+    res.json(empleadosFinal);
+  } catch (err) {
+    console.error('[API Empleados] Error general:', err);
+    res.status(500).send('Error al obtener empleados');
+  }
+});
+
+
+// RUTA PARA EL ROL DE PAGO (ACTUALIZADA: consume fn_visualizar_rol sin filtrar por año/mes)
+app.get('/api/empleados/payroll/:id', async (req, res) => {
+    const { ciudad } = req.query;
+    const { id: employeeId } = req.params;
+
+    let pool;
+
+    try {
+        if (!ciudad) {
+            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el rol de pago.');
         }
-        res.json(empleadosResult);
+        // Validar si la ciudad es una clave válida en configByCity
+        if (!configByCity[ciudad]) {
+            console.error(`Error: Ciudad no válida para conexión en el rol de pago: ${ciudad}`);
+            return res.status(400).send(`Ciudad no válida para el rol de pago: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
+        }
+
+        pool = await getConnection(ciudad);
+
+        let idPago = null;
+
+        const requestGetIdPago = pool.request();
+        requestGetIdPago.input('id_Empleado', sql.Char(7), employeeId);
+
+        const queryGetIdPago = `
+            SELECT TOP 1 p.id_Pago
+            FROM Pagos p
+            JOIN BonxEmpxPag b ON p.id_Pago = b.id_Pago
+            WHERE b.id_Empleado = @id_Empleado
+            ORDER BY p.pag_Fecha_Inicio DESC;
+        `;
+        
+        console.log(`[PAYROLL DEBUG] Query para obtener idPago: ${queryGetIdPago}`);
+        const resultIdPago = await requestGetIdPago.query(queryGetIdPago);
+
+        if (resultIdPago.recordset.length > 0) {
+            idPago = resultIdPago.recordset[0].id_Pago;
+            console.log(`[PAYROLL DEBUG] id_Pago encontrado: ${idPago}`);
+
+            const requestRolData = pool.request();
+            requestRolData.input('id_Pago', sql.Char(7), idPago);
+
+            const rolResult = await requestRolData.query(`SELECT * FROM dbo.fn_visualizar_rol(@id_Pago);`);
+            const rolData = rolResult.recordset;
+
+            pool.close();
+
+            return res.json(rolData);
+
+        } else {
+            console.log(`[PAYROLL DEBUG] No se encontró id_Pago para el empleado ${employeeId}.`);
+            pool.close();
+            return res.json([]);
+        }
+
     } catch (err) {
-        console.error('[API Empleados] Error general al obtener empleados:', err);
-        res.status(500).send('Error al obtener empleados');
+        console.error('Error al obtener el rol de pago del empleado:', err);
+        if (pool && pool.connected) {
+            pool.close();
+        }
+        res.status(500).send('Error al obtener el rol de pago del empleado.');
     }
 });
 
-// Compras (listado)
+// Compras (listado) - NO MODIFICADO (Según tu indicación, ya funciona correctamente)
 app.get('/api/compras', async (req, res) => {
     const ciudad = req.query.ciudad || 'ALL';
     let pool;
@@ -352,7 +391,6 @@ app.get('/api/compras', async (req, res) => {
                 try {
                     currentPool = await getConnection(c);
                     const request = currentPool.request();
-                    // Eliminada la columna 'id_Ciudad' de la selección
                     const query = `
                         SELECT
                             id_Compra,
@@ -360,17 +398,17 @@ app.get('/api/compras', async (req, res) => {
                             oc_Fecha_Hora,
                             oc_Subtotal,
                             oc_IVA,
-                            ESTADO_OC
+                            ESTADO_OC,
+                            id_Ciudad_Compra -- Asegúrate que esta columna existe en tu tabla COMPRAS
                         FROM COMPRAS
                         ORDER BY oc_Fecha_Hora DESC;
                     `;
                     const result = await request.query(query);
                     currentPool.close();
-                    // Añadir el nombre de la base de datos y el id_Ciudad (c)
                     return result.recordset.map(item => ({
                         ...item,
                         CiudadDB: configByCity[c].database,
-                        id_Ciudad: c // <-- Agregando id_Ciudad aquí para que el frontend lo use
+                        id_Ciudad: item.id_Ciudad_Compra // Usar la columna de la tabla COMPRAS
                     }));
                 } catch (innerErr) {
                     console.error(`Error al obtener compras de ${c}:`, innerErr);
@@ -378,11 +416,10 @@ app.get('/api/compras', async (req, res) => {
                 }
             });
             comprasResult = (await Promise.all(promesasCompras)).flat();
-        } else {
+        } else { // Si se selecciona una ciudad específica
             try {
-                pool = await getConnection(ciudad);
+                pool = await getConnection(ciudad); // Conecta a la base de datos de la ciudad seleccionada
                 const request = pool.request();
-                // Eliminada la columna 'id_Ciudad' de la selección y la cláusula WHERE
                 const query = `
                     SELECT
                         id_Compra,
@@ -390,18 +427,19 @@ app.get('/api/compras', async (req, res) => {
                         oc_Fecha_Hora,
                         oc_Subtotal,
                         oc_IVA,
-                        ESTADO_OC
+                        ESTADO_OC,
+                        id_Ciudad_Compra -- Asegúrate que esta columna existe en tu tabla COMPRAS
                     FROM COMPRAS
+                    WHERE id_Ciudad_Compra = @ciudad -- SÍ FILTRA POR LA CIUDAD DE LA COMPRA (Según tu indicación)
                     ORDER BY oc_Fecha_Hora DESC;
                 `;
-                // No es necesario request.input('ciudad', ...) ya que la cláusula WHERE fue eliminada
+                request.input('ciudad', sql.Char(3), ciudad); // El parámetro @ciudad es 'QUI' o 'GYE'
                 const result = await request.query(query);
                 pool.close();
-                // Añadir el nombre de la base de datos y el id_Ciudad (ciudad)
                 comprasResult = result.recordset.map(item => ({
                     ...item,
                     CiudadDB: configByCity[ciudad].database,
-                    id_Ciudad: ciudad // <-- Agregando id_Ciudad aquí para que el frontend lo use
+                    id_Ciudad: item.id_Ciudad_Compra // Usar la columna de la tabla COMPRAS
                 }));
             } catch (err) {
                 console.error(`Error al obtener compras para la ciudad ${ciudad}:`, err);
@@ -505,69 +543,6 @@ app.get('/api/compras/detalle/:id', async (req, res) => {
     }
 });
 
-// RUTA PARA EL ROL DE PAGO (ACTUALIZADA: consume fn_visualizar_rol sin filtrar por año/mes)
-app.get('/api/empleados/payroll/:id', async (req, res) => {
-    const { ciudad } = req.query;
-    const { id: employeeId } = req.params;
-
-    let pool;
-
-    try {
-        if (!ciudad) {
-            return res.status(400).send('Se requiere el parámetro "ciudad" para obtener el rol de pago.');
-        }
-        // Validar si la ciudad es una clave válida en configByCity
-        if (!configByCity[ciudad]) {
-            console.error(`Error: Ciudad no válida para conexión en el rol de pago: ${ciudad}`);
-            return res.status(400).send(`Ciudad no válida para el rol de pago: ${ciudad}. Por favor, contacte al administrador si cree que es un error.`);
-        }
-
-        pool = await getConnection(ciudad);
-
-        let idPago = null;
-
-        const requestGetIdPago = pool.request();
-        requestGetIdPago.input('id_Empleado', sql.Char(7), employeeId);
-
-        const queryGetIdPago = `
-            SELECT TOP 1 p.id_Pago
-            FROM Pagos p
-            JOIN BonxEmpxPag b ON p.id_Pago = b.id_Pago
-            WHERE b.id_Empleado = @id_Empleado
-            ORDER BY p.pag_Fecha_Inicio DESC;
-        `;
-        
-        console.log(`[PAYROLL DEBUG] Query para obtener idPago: ${queryGetIdPago}`);
-        const resultIdPago = await requestGetIdPago.query(queryGetIdPago);
-
-        if (resultIdPago.recordset.length > 0) {
-            idPago = resultIdPago.recordset[0].id_Pago;
-            console.log(`[PAYROLL DEBUG] id_Pago encontrado: ${idPago}`);
-
-            const requestRolData = pool.request();
-            requestRolData.input('id_Pago', sql.Char(7), idPago);
-
-            const rolResult = await requestRolData.query(`SELECT * FROM dbo.fn_visualizar_rol(@id_Pago);`);
-            const rolData = rolResult.recordset;
-
-            pool.close();
-
-            return res.json(rolData);
-
-        } else {
-            console.log(`[PAYROLL DEBUG] No se encontró id_Pago para el empleado ${employeeId}.`);
-            pool.close();
-            return res.json([]);
-        }
-
-    } catch (err) {
-        console.error('Error al obtener el rol de pago del empleado:', err);
-        if (pool && pool.connected) {
-            pool.close();
-        }
-        res.status(500).send('Error al obtener el rol de pago del empleado.');
-    }
-});
 
 
 // Ruta para Ventas
@@ -694,7 +669,8 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
             try {
                 currentPool = await getConnection(c);
                 const request = currentPool.request();
-                // CORRECCIÓN: Eliminado id_Ciudad de la selección, si no existe en la tabla ASIENTOS
+                // La consulta no incluye WHERE id_Ciudad = @ciudad
+                // ya que el filtrado se realiza por la conexión a la base de datos específica.
                 const query = `
                     SELECT
                         id_Asiento,
@@ -719,9 +695,10 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
     } else {
       let pool;
       try {
-        pool = await getConnection(ciudad);
+        pool = await getConnection(ciudad); // Conecta a la base de datos de la ciudad seleccionada
         const request = pool.request();
-        // CORRECCIÓN: Eliminado id_Ciudad de la selección y de la cláusula WHERE, si no existe en la tabla ASIENTOS
+        // La consulta no incluye WHERE id_Ciudad = @ciudad
+        // ya que el filtrado se realiza por la conexión a la base de datos específica.
         const query = `
           SELECT
             id_Asiento,
@@ -731,8 +708,6 @@ app.get("/api/contabilidad/asientos", async (req, res) => {
           FROM ASIENTOS
           ORDER BY asi_FechaHora DESC, id_Asiento DESC;
         `;
-        // Ya no se filtra por id_Ciudad en la consulta SQL directamente
-        // request.input('ciudad', sql.Char(3), ciudad);
         const result = await request.query(query);
         pool.close();
         // Añadir el nombre de la base de datos y el id_Ciudad (ciudad) basado en la conexión
@@ -812,28 +787,27 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
   }
 
   console.warn(`[DEBUG - Asiento Detalle] Asiento con ID ${asientoId} no encontrado en ninguna de las bases de datos configuradas.`);
-  return res.status(404).send(`Asiento con ID ${asientoId} no encontrado en ninguna de las bases de datos configuradas.`);
+  return res.status(404).send(`Asiento con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`);
 });
 
 // ENDPOINTS PARA INVENTARIO (AHORA PARA AJUSTES)
 
-// Ruta para listar ajustes de inventario (resumen)
+// Ruta para listar ajustes de inventario (resumen) - MODIFICADO PARA FILTRAR POR CONEXIÓN
 app.get('/api/inventario/ajustes', async (req, res) => {
     const ciudad = req.query.ciudad || 'ALL';
-    console.log(`[DEBUG - Inventario Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`); // Nuevo log
-    let pool;
+    console.log(`[DEBUG - Inventario Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`);
     try {
         let ajustesResult = [];
-        const allCities = Object.keys(configByCity);
+        const citiesToQuery = ciudad === 'ALL' ? Object.keys(configByCity) : [ciudad];
 
-        if (ciudad === 'ALL') {
-            const promesasAjustes = allCities.map(async c => {
-                let currentPool;
-                try {
-                    currentPool = await getConnection(c);
-                    const request = currentPool.request();
-                    // CORRECCIÓN: Eliminado id_Ciudad de la selección, si no existe en la tabla AJUSTES
-                    const query = `
+        const promesasAjustes = citiesToQuery.map(async c => {
+            let currentPool;
+            try {
+                currentPool = await getConnection(c); // Conecta a la base de datos de la ciudad actual
+                const request = currentPool.request();
+                // La consulta no incluye WHERE id_Ciudad_Ajuste = @ciudad
+                // ya que el filtrado se realiza por la conexión a la base de datos específica.
+                const query = `
                         SELECT
                             id_Ajuste,
                             USER_ID,
@@ -844,47 +818,18 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                         FROM AJUSTES
                         ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
                     `;
-                    console.log(`[DEBUG - Inventario Ajustes Lista] Ejecutando consulta ALL en la ciudad: ${c}`); // Nuevo log
-                    const result = await request.query(query);
-                    currentPool.close();
-                    // Añadir el nombre de la base de datos y el id_Ciudad (c) basado en la conexión
-                    return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database, id_Ciudad: c }));
-                } catch (innerErr) {
-                    console.error(`Error al obtener ajustes de inventario de ${c}:`, innerErr);
-                    return [];
-                }
-            });
-            ajustesResult = (await Promise.all(promesasAjustes)).flat();
-        } else {
-            try {
-                pool = await getConnection(ciudad);
-                const request = pool.request();
-                // CORRECCIÓN: Eliminado id_Ciudad de la selección y de la cláusula WHERE, si no existe en la tabla AJUSTES
-                const query = `
-                    SELECT
-                        id_Ajuste,
-                        USER_ID,
-                        aju_Descripcion,
-                        aju_FechaHora,
-                        aju_Num_Produc,
-                        ESTADO_AJU
-                    FROM AJUSTES
-                    ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
-                `;
-                // Ya no se filtra por id_Ciudad en la consulta SQL directamente
-                // request.input('ciudad', sql.Char(3), ciudad);
-                console.log(`[DEBUG - Inventario Ajustes Lista] Ejecutando consulta filtrada para la ciudad: ${ciudad}`); // Nuevo log
+                console.log(`[DEBUG - Inventario Ajustes Lista] Ejecutando consulta en la ciudad: ${c}`);
                 const result = await request.query(query);
-                pool.close();
-                // Añadir el nombre de la base de datos y el id_Ciudad (ciudad) basado en la conexión
-                ajustesResult = result.recordset.map(a => ({ ...a, CiudadDB: configByCity[ciudad].database, id_Ciudad: ciudad }));
-                console.log(`[DEBUG - Inventario Ajustes Lista] Resultados obtenidos para ${ciudad}:`, ajustesResult.length); // Nuevo log
-            } catch (err) {
-                console.error(`Error al obtener ajustes de inventario para la ciudad ${ciudad}:`, err);
-                return res.status(500).send(`Error al obtener ajustes de inventario para la ciudad ${ciudad}`);
+                currentPool.close();
+                // Añadir el nombre de la base de datos y el id_Ciudad (c) basado en la conexión
+                return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database, id_Ciudad: c }));
+            } catch (innerErr) {
+                console.error(`Error al obtener ajustes de inventario de ${c}:`, innerErr);
+                return [];
             }
-        }
-        console.log(`[DEBUG - Inventario Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`); // Nuevo log
+        });
+        ajustesResult = (await Promise.all(promesasAjustes)).flat();
+        console.log(`[DEBUG - Inventario Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`);
         res.json(ajustesResult);
     } catch (err) {
         console.error('Error general al obtener ajustes de inventario:', err);
