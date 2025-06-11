@@ -1,6 +1,6 @@
 // server.js
 
-require('dotenv').config(); // Carga las variables de entorno
+require('dotenv').config(); // Carga las variables de entorno (se mantiene para QUI y GYE)
 const express = require('express');
 const cors = require('cors'); // Habilitar CORS para todas las rutas
 const sql = require('mssql');
@@ -15,15 +15,13 @@ console.log("DEBUG: process.env.DB_PASSWORD:", process.env.DB_PASSWORD ? "Define
 console.log("DEBUG: process.env.DB_SERVER:", process.env.DB_SERVER ? "Defined" : "Undefined");
 console.log("DEBUG: process.env.DB_NAME_QUITO:", process.env.DB_NAME_QUITO ? `Defined as "${process.env.DB_NAME_QUITO}"` : "Undefined");
 console.log("DEBUG: process.env.DB_NAME_GUAYAQUIL:", process.env.DB_NAME_GUAYAQUIL ? `Defined as "${process.env.DB_NAME_GUAYAQUIL}"` : "Undefined");
-// Si tienes otras ciudades, añade logs para ellas también:
-// console.log("DEBUG: process.env.DB_NAME_CUENCA:", process.env.DB_NAME_CUENCA ? `Defined as "${process.env.DB_NAME_CUENCA}"` : "Undefined");
-// console.log("DEBUG: process.env.DB_NAME_MANTA:", process.env.DB_NAME_MANTA ? `Defined as "${process.env.DB_NAME_MANTA}"` : "Undefined");
+console.log("DEBUG: Configuración de Cuenca y Manta ahora está directamente en server.js (no de .env)");
 // --- FIN DEBUG ---
 
-// Objeto de configuración de bases de datos por ciudad (desde el ejemplo que proporcionaste)
-// Asegúrate de que estas variables de entorno estén definidas en tu archivo .env
+// Objeto de configuración de bases de datos por ciudad
 const configByCity = {};
 
+// Configuración para Quito (se mantiene usando .env)
 if (process.env.DB_NAME_QUITO) {
   configByCity.QUI = {
     user: process.env.DB_USER,
@@ -37,6 +35,7 @@ if (process.env.DB_NAME_QUITO) {
   };
 }
 
+// Configuración para Guayaquil (se mantiene usando .env)
 if (process.env.DB_NAME_GUAYAQUIL) {
   configByCity.GYE = {
     user: process.env.DB_USER,
@@ -50,31 +49,30 @@ if (process.env.DB_NAME_GUAYAQUIL) {
   };
 }
 
-// Puedes descomentar y configurar otras ciudades aquí si sus variables de entorno están definidas
-// if (process.env.DB_NAME_CUENCA) {
-//   configByCity.CUE = {
-//     user: process.env.DB_USER,
-//     password: process.env.DB_PASSWORD,
-//     server: process.env.DB_SERVER,
-//     database: process.env.DB_NAME_CUENCA,
-//     options: {
-//       encrypt: true,
-//       trustServerCertificate: true
-//     }
-//   };
-// }
-// if (process.env.DB_NAME_MANTA) {
-//   configByCity.MAN = {
-//     user: process.env.DB_USER,
-//     password: process.env.DB_PASSWORD,
-//     server: process.env.DB_SERVER,
-//     database: process.env.DB_NAME_MANTA,
-//     options: {
-//       encrypt: true,
-//       trustServerCertificate: true
-//     }
-//   };
-// }
+// Configuración para Cuenca (hardcoded)
+configByCity.CUE = {
+  user: 'sqlserver',
+  password: 'Cuenca2024#SQL!',
+  server: '34.57.18.252',
+  database: 'Comercial_Cuenca', // Asumiendo este nombre de DB
+  options: {
+    encrypt: true,
+    trustServerCertificate: true
+  }
+};
+
+// Configuración para Manta (hardcoded) - CORREGIDO EL PUERTO
+configByCity.MAN = {
+  user: 'sqladmin',
+  password: 'Manta2024#SQL!',
+  server: 'comercial-manta.ck1qiw8oex6t.us-east-1.rds.amazonaws.com', // Eliminado el :1433 del server
+  database: 'Comercial_Manta', // Asumiendo este nombre de DB
+  options: {
+    encrypt: true,
+    trustServerCertificate: true,
+    port: 1433 // Añadido el puerto como una opción separada
+  }
+};
 
 // --- DEBUG: Loguear configByCity después de su inicialización ---
 console.log("DEBUG: configByCity after initialization:", JSON.stringify(configByCity, null, 2));
@@ -87,7 +85,7 @@ const connectionPools = {};
 /**
  * Obtiene o crea una nueva conexión de pool para la base de datos de una ciudad específica.
  * Reutiliza pools existentes si ya han sido creados para esa ciudad.
- * @param {string} cityCode El código de la ciudad (ej. 'QUI', 'GYE').
+ * @param {string} cityCode El código de la ciudad (ej. 'QUI', 'GYE', 'CUE', 'MAN').
  * @returns {Promise<sql.ConnectionPool>} Una promesa que resuelve con un objeto ConnectionPool.
  */
 const getConnection = async (cityCode) => {
@@ -99,7 +97,7 @@ const getConnection = async (cityCode) => {
 
   // Si ya tenemos un pool para esta ciudad y está conectado, lo devolvemos.
   if (connectionPools[normalizedCityCode] && connectionPools[normalizedCityCode].connected) {
-    console.log(`DEBUG: Reutilizando pool existente para la ciudad ${normalizedCityCode}`); // Nuevo log
+    console.log(`DEBUG: Reutilizando pool existente para la ciudad ${normalizedCityCode}`);
     return connectionPools[normalizedCityCode];
   }
 
@@ -109,7 +107,7 @@ const getConnection = async (cityCode) => {
   }
 
   try {
-    console.log(`DEBUG: Intentando conectar a la base de datos: ${dbConfig.database} para la ciudad ${normalizedCityCode}`); // Nuevo log
+    console.log(`DEBUG: Intentando conectar a la base de datos: ${dbConfig.database} para la ciudad ${normalizedCityCode}`);
     const pool = new sql.ConnectionPool(dbConfig);
     await pool.connect();
     // Almacenamos el pool para futura reutilización.
@@ -134,7 +132,7 @@ app.get('/api/ciudades', (req, res) => {
     const ciudadesDisponibles = Object.keys(configByCity).map(key => {
         // Obtener el nombre de la base de datos directamente de la configuración
         const dbName = configByCity[key].database;
-        return { id_Ciudad: key, db_name: dbName }; // Cambiado ciu_descripcion a db_name
+        return { id_Ciudad: key, db_name: dbName };
     });
     res.json(ciudadesDisponibles);
 });
@@ -800,34 +798,30 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
 // Ruta para listar ajustes de inventario (resumen)
 app.get('/api/inventario/ajustes', async (req, res) => {
     const ciudad = req.query.ciudad || 'ALL';
-    console.log(`[API Inventario - Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`); // Actualizado el prefijo del log
+    console.log(`[API Inventario - Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`);
     try {
         let ajustesResult = [];
         const citiesToQuery = ciudad === 'ALL' || !ciudad
           ? Object.keys(configByCity)
           : [ciudad];
 
-        // Validar que citiesToQuery no esté vacío antes de iterar
         if (citiesToQuery.length === 0) {
-          console.warn('[API Inventario - Ajustes Lista] No hay ciudades configuradas para la consulta de ajustes.'); // Actualizado el prefijo del log
+          console.warn('[API Inventario - Ajustes Lista] No hay ciudades configuradas para la consulta de ajustes.');
           return res.json([]);
         }
 
-        console.log(`[API Inventario - Ajustes Lista] Ciudades para la consulta: ${citiesToQuery.join(', ')}`); // Nuevo log para ver qué ciudades se van a consultar
+        console.log(`[API Inventario - Ajustes Lista] Ciudades para la consulta: ${citiesToQuery.join(', ')}`);
 
         const promesasAjustes = citiesToQuery.map(async c => {
             let currentPool;
-            // Asegurarse de que la configuración para 'c' existe antes de intentar conectar
             if (!configByCity[c]) {
-              console.warn(`[API Inventario - Ajustes Lista] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`); // Actualizado el prefijo del log
-              return []; // Retorna un array vacío para esta ciudad
+              console.warn(`[API Inventario - Ajustes Lista] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`);
+              return [];
             }
             try {
-                console.log(`[API Inventario - Ajustes Lista] Ejecutando consulta en la base de datos: ${configByCity[c].database} (código: ${c})`); // **MEJORA DE LOG**
-                currentPool = await getConnection(c); // Conecta a la base de datos de la ciudad actual
+                console.log(`[API Inventario - Ajustes Lista] Ejecutando consulta en la base de datos: ${configByCity[c].database} (código: ${c})`);
+                currentPool = await getConnection(c);
                 const request = currentPool.request();
-                // La consulta no incluye WHERE id_Ciudad_Ajuste = @ciudad
-                // ya que el filtrado se realiza por la conexión a la base de datos específica.
                 const query = `
                         SELECT
                             id_Ajuste,
@@ -836,27 +830,19 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                             aju_FechaHora,
                             aju_Num_Produc,
                             ESTADO_AJU
-                            -- Si existe una columna de ciudad directamente en AJUSTES o una tabla relacionada, agrégala aquí
-                            -- Por ejemplo, si AJUSTES tiene id_Ciudad:
-                            --, id_Ciudad -- Añade esta línea si la tabla AJUSTES tiene una columna id_Ciudad
                         FROM AJUSTES
                         ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
                     `;
                 const result = await request.query(query);
                 currentPool.close();
 
-                console.log(`[API Inventario - Ajustes Lista] Raw data from ${configByCity[c].database}:`, JSON.stringify(result.recordset, null, 2)); // **NUEVO LOG CRÍTICO**
+                console.log(`[API Inventario - Ajustes Lista] Raw data from ${configByCity[c].database}:`, JSON.stringify(result.recordset, null, 2));
 
-                console.log(`[API Inventario - Ajustes Lista] Ciudad ${c} tiene ${result.recordset.length} ajustes`); // Nuevo log de cantidad de ajustes
-                // Añadir el nombre de la base de datos y el id_Ciudad (c) basado en la conexión
-                // Si la tabla AJUSTES tiene una columna de ciudad (ej. 'id_Ciudad_Ajuste'), úsala.
-                // De lo contrario, 'CiudadDB' reflejará la base de datos a la que te conectaste.
+                console.log(`[API Inventario - Ajustes Lista] Ciudad ${c} tiene ${result.recordset.length} ajustes`);
                 return result.recordset.map(a => ({
                     ...a,
-                    CiudadDB: configByCity[c].database, // Esto debería reflejar la DB a la que se conectó
-                    id_Ciudad: c // Esto es el código (QUI, GYE) de la DB conectada
-                    // Si existe una columna de ciudad en los resultados, y quieres mostrarla, puedes añadirla aquí
-                    // Por ejemplo: OriginalCityInRecord: a.id_Ciudad_Ajuste (si la columna existe en el resultado de la query)
+                    CiudadDB: configByCity[c].database,
+                    id_Ciudad: c
                 }));
             } catch (innerErr) {
                 console.error(`Error al obtener ajustes de inventario de ${c}:`, innerErr);
@@ -864,7 +850,7 @@ app.get('/api/inventario/ajustes', async (req, res) => {
             }
         });
         ajustesResult = (await Promise.all(promesasAjustes)).flat();
-        console.log(`[API Inventario - Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`); // Actualizado el prefijo del log
+        console.log(`[API Inventario - Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`);
         res.json(ajustesResult);
     } catch (err) {
         console.error('Error general al obtener ajustes de inventario:', err);
@@ -876,26 +862,24 @@ app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
     const { ciudad } = req.query;
     const { id: ajusteId } = req.params;
 
-    console.log(`[DEBUG - Ajuste Detalle] Recibida solicitud para ID: ${ajusteId}, Ciudad (req.query.ciudad): "${ciudad}"`); // Nuevo log
+    console.log(`[DEBUG - Ajuste Detalle] Recibida solicitud para ID: ${ajusteId}, Ciudad (req.query.ciudad): "${ciudad}"`);
 
     let citiesToSearch = [];
     if (ciudad && ciudad !== "ALL" && configByCity[ciudad]) {
         citiesToSearch = [ciudad];
-        console.log(`[DEBUG - Ajuste Detalle] Ciudad es válida y configurada. Buscando solo en: ${ciudad}`); // Nuevo log
+        console.log(`[DEBUG - Ajuste Detalle] Ciudad es válida y configurada. Buscando solo en: ${ciudad}`);
     } else {
-        citiesToSearch = Object.keys(configByCity); // Si es 'ALL', no especificada o no válida, buscar en todas
-        console.log(`[DEBUG - Ajuste Detalle] Ciudad no especificada/válida. Buscando en todas las ciudades configuradas: ${citiesToSearch.join(', ')}`); // Nuevo log
+        citiesToSearch = Object.keys(configByCity);
+        console.log(`[DEBUG - Ajuste Detalle] Ciudad no especificada/válida. Buscando en todas las ciudades configuradas: ${citiesToSearch.join(', ')}`);
     }
 
-    // Validar que citiesToSearch no esté vacío antes de iterar
     if (citiesToSearch.length === 0) {
       console.warn('[DEBUG - Ajuste Detalle] No hay ciudades configuradas para la consulta de detalle de ajuste.');
       return res.status(404).send(`Ajuste con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`);
     }
 
     for (const cityCode of citiesToSearch) {
-        console.log(`[DEBUG - Ajuste Detalle] Intentando conectar a la ciudad: ${cityCode}`); // Nuevo log
-        // Asegurarse de que la configuración para 'cityCode' existe antes de intentar conectar
+        console.log(`[DEBUG - Ajuste Detalle] Intentando conectar a la ciudad: ${cityCode}`);
         if (!configByCity[cityCode]) {
           console.warn(`[DEBUG - Ajuste Detalle] Configuración de base de datos no encontrada para la ciudad: ${cityCode}. Saltando.`);
           continue;
@@ -905,48 +889,47 @@ app.get('/api/inventario/ajuste/detalle/:id', async (req, res) => {
             const request = pool.request();
 
             request.input('p_id_ajuste', sql.VarChar(50), ajusteId);
-            console.log(`[DEBUG - Ajuste Detalle] Ejecutando SP 'dbo.sp_ver_ajuste_completo_unido' en ${cityCode} para ID ${ajusteId}`); // Nuevo log
+            console.log(`[DEBUG - Ajuste Detalle] Ejecutando SP 'dbo.sp_ver_ajuste_completo_unido' en ${cityCode} para ID ${ajusteId}`);
             const result = await request.execute('dbo.sp_ver_ajuste_completo_unido');
             pool.close();
 
             const rows = result.recordsets[0] || [];
-            console.log(`[DEBUG - Ajuste Detalle] Raw rows from SP for ${ajusteId} in ${cityCode}:`, JSON.stringify(rows, null, 2)); // Log para depuración
+            console.log(`[DEBUG - Ajuste Detalle] Raw rows from SP for ${ajusteId} in ${cityCode}:`, JSON.stringify(rows, null, 2));
 
             const headerRow = rows.find(r => r.tipo === 'CABECERA') || null;
-            if (headerRow) { // Si se encuentra la cabecera en esta BD, se devuelve
+            if (headerRow) {
                 const detailRows = rows.filter(r => r.tipo === 'DETALLE');
                 const totalRow = rows.find(r => r.tipo === 'TOTALES') || null;
 
                 const formattedDetails = detailRows.map(row => ({
-                    // Aquí es donde se mapean las columnas del SP a los nombres esperados por el frontend
                     id_Producto: row.columna1?.replace('Producto: ', '')?.trim() ?? '',
                     pro_Descripcion: row.columna2?.trim() ?? '',
                     unidad_medida: row.columna3?.replace('UM: ', '')?.trim() ?? '',
                     aju_Cantidad: row.columna4?.replace('Cantidad: ', '')?.trim() ?? '',
-                    ESTADO_AJUD: row.columna5?.replace('Estado PxA: ', '')?.trim() ?? '' // Columna 5 del detalle es el estado PxA
+                    ESTADO_AJUD: row.columna5?.replace('Estado PxA: ', '')?.trim() ?? ''
                 }));
 
-                console.log(`[DEBUG - Ajuste Detalle] Ajuste encontrado en ${cityCode}.`); // Nuevo log
+                console.log(`[DEBUG - Ajuste Detalle] Ajuste encontrado en ${cityCode}.`);
                 return res.json({
                     header: headerRow ? {
                         id_ajuste: headerRow.columna1?.replace('Ajuste: ', '')?.trim() ?? '',
                         descripcion: headerRow.columna2?.replace('Descripción: ', '')?.trim() ?? '',
-                        fecha_hora: headerRow.columna3?.trim() ?? '', // Mantener como string, el frontend lo formateará
+                        fecha_hora: headerRow.columna3?.trim() ?? '',
                         usuario: headerRow.columna4?.replace('Usuario: ', '')?.trim() ?? '',
                         estado: headerRow.columna5?.replace('Estado: ', '')?.trim() ?? ''
                     } : null,
                     details: formattedDetails,
                     totals: totalRow ? {
-                        totalTexto: totalRow.columna5 // Asumiendo que columna5 tiene el texto total en la fila TOTALES
+                        totalTexto: totalRow.columna5
                     } : null
                 });
             }
         } catch (err) {
-            console.warn(`[DEBUG - Ajuste Detalle] Ajuste ${ajusteId} no encontrado o error en ${cityCode}: ${err.message}`); // Nuevo log
+            console.warn(`[DEBUG - Ajuste Detalle] Ajuste ${ajusteId} no encontrado o error en ${cityCode}: ${err.message}`);
         }
     }
 
-    console.warn(`[DEBUG - Ajuste Detalle] Ajuste con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`); // Nuevo log
+    console.warn(`[DEBUG - Ajuste Detalle] Ajuste con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`);
     return res.status(404).send(`Ajuste con ID ${ajusteId} no encontrado en ninguna de las bases de datos configuradas.`);
 });
 
@@ -957,7 +940,6 @@ app.get('/api/general/log', async (req, res) => {
         let transactionsResult = [];
         const allCities = Object.keys(configByCity);
 
-        // Validar que allCities no esté vacío
         if (allCities.length === 0) {
           console.warn('[API Log General] No hay ciudades configuradas para la consulta de log general.');
           return res.json([]);
@@ -965,17 +947,15 @@ app.get('/api/general/log', async (req, res) => {
 
         const promises = allCities.map(async c => {
             let currentPool;
-            // Asegurarse de que la configuración para 'c' existe antes de intentar conectar
             if (!configByCity[c]) {
               console.warn(`[API Log General] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`);
-              return []; // Retorna un array vacío para esta ciudad
+              return [];
             }
             try {
                 currentPool = await getConnection(c);
                 const request = currentPool.request();
                 const result = await request.input('p_limit', sql.Int, 50).execute('dbo.sp_ver_log_general');
                 currentPool.close();
-                // Añadir el nombre de la base de datos
                 return result.recordset.map(t => ({ ...t, CiudadDB: configByCity[c].database }));
             } catch (innerErr) {
                 console.error(`Error al obtener transacciones de log de ${c}:`, innerErr);
