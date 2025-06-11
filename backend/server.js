@@ -800,7 +800,7 @@ app.get('/api/contabilidad/asiento/detalle/:id', async (req, res) => {
 // Ruta para listar ajustes de inventario (resumen)
 app.get('/api/inventario/ajustes', async (req, res) => {
     const ciudad = req.query.ciudad || 'ALL';
-    console.log(`[DEBUG - Inventario Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`);
+    console.log(`[API Inventario - Ajustes Lista] Recibida solicitud. Ciudad de filtro: "${ciudad}"`); // Actualizado el prefijo del log
     try {
         let ajustesResult = [];
         const citiesToQuery = ciudad === 'ALL' || !ciudad
@@ -809,19 +809,21 @@ app.get('/api/inventario/ajustes', async (req, res) => {
 
         // Validar que citiesToQuery no esté vacío antes de iterar
         if (citiesToQuery.length === 0) {
-          console.warn('[API Inventario Ajustes] No hay ciudades configuradas para la consulta de ajustes.');
+          console.warn('[API Inventario - Ajustes Lista] No hay ciudades configuradas para la consulta de ajustes.'); // Actualizado el prefijo del log
           return res.json([]);
         }
+
+        console.log(`[API Inventario - Ajustes Lista] Ciudades para la consulta: ${citiesToQuery.join(', ')}`); // Nuevo log para ver qué ciudades se van a consultar
 
         const promesasAjustes = citiesToQuery.map(async c => {
             let currentPool;
             // Asegurarse de que la configuración para 'c' existe antes de intentar conectar
             if (!configByCity[c]) {
-              console.warn(`[API Inventario Ajustes] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`);
+              console.warn(`[API Inventario - Ajustes Lista] Configuración de base de datos no encontrada para la ciudad: ${c}. Saltando.`); // Actualizado el prefijo del log
               return []; // Retorna un array vacío para esta ciudad
             }
             try {
-                console.log(`[DEBUG - Inventario Ajustes Lista] Ejecutando consulta en la ciudad: ${c}`);
+                console.log(`[API Inventario - Ajustes Lista] Ejecutando consulta en la base de datos: ${configByCity[c].database} (código: ${c})`); // **MEJORA DE LOG**
                 currentPool = await getConnection(c); // Conecta a la base de datos de la ciudad actual
                 const request = currentPool.request();
                 // La consulta no incluye WHERE id_Ciudad_Ajuste = @ciudad
@@ -834,20 +836,35 @@ app.get('/api/inventario/ajustes', async (req, res) => {
                             aju_FechaHora,
                             aju_Num_Produc,
                             ESTADO_AJU
+                            -- Si existe una columna de ciudad directamente en AJUSTES o una tabla relacionada, agrégala aquí
+                            -- Por ejemplo, si AJUSTES tiene id_Ciudad:
+                            --, id_Ciudad -- Añade esta línea si la tabla AJUSTES tiene una columna id_Ciudad
                         FROM AJUSTES
                         ORDER BY aju_FechaHora DESC, id_Ajuste DESC;
                     `;
                 const result = await request.query(query);
                 currentPool.close();
+
+                console.log(`[API Inventario - Ajustes Lista] Raw data from ${configByCity[c].database}:`, JSON.stringify(result.recordset, null, 2)); // **NUEVO LOG CRÍTICO**
+
+                console.log(`[API Inventario - Ajustes Lista] Ciudad ${c} tiene ${result.recordset.length} ajustes`); // Nuevo log de cantidad de ajustes
                 // Añadir el nombre de la base de datos y el id_Ciudad (c) basado en la conexión
-                return result.recordset.map(a => ({ ...a, CiudadDB: configByCity[c].database, id_Ciudad: c }));
+                // Si la tabla AJUSTES tiene una columna de ciudad (ej. 'id_Ciudad_Ajuste'), úsala.
+                // De lo contrario, 'CiudadDB' reflejará la base de datos a la que te conectaste.
+                return result.recordset.map(a => ({
+                    ...a,
+                    CiudadDB: configByCity[c].database, // Esto debería reflejar la DB a la que se conectó
+                    id_Ciudad: c // Esto es el código (QUI, GYE) de la DB conectada
+                    // Si existe una columna de ciudad en los resultados, y quieres mostrarla, puedes añadirla aquí
+                    // Por ejemplo: OriginalCityInRecord: a.id_Ciudad_Ajuste (si la columna existe en el resultado de la query)
+                }));
             } catch (innerErr) {
                 console.error(`Error al obtener ajustes de inventario de ${c}:`, innerErr);
                 return [];
             }
         });
         ajustesResult = (await Promise.all(promesasAjustes)).flat();
-        console.log(`[DEBUG - Inventario Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`);
+        console.log(`[API Inventario - Ajustes Lista] Total de resultados a enviar al frontend: ${ajustesResult.length}`); // Actualizado el prefijo del log
         res.json(ajustesResult);
     } catch (err) {
         console.error('Error general al obtener ajustes de inventario:', err);
